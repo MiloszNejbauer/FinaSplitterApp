@@ -18,6 +18,8 @@ interface Expense {
   description: string;
   totalAmount: number;
   paidById: string;
+  isSettlement: boolean;
+  createdAt: Date;
 }
 
 export default function GroupDetails() {
@@ -31,6 +33,11 @@ export default function GroupDetails() {
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
+  //Stany dodawania uzytkownikow
+  const [isAddUserModalVisible, setAddUserModalVisible] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [isAddingUser, setIsAddingUser] = useState(false);
+
   // Stany formularza wydatku
   const [isModalVisible, setModalVisible] = useState(false);
   const [description, setDescription] = useState("");
@@ -43,6 +50,12 @@ export default function GroupDetails() {
     {},
   );
   const [isCustomSplit, setIsCustomSplit] = useState(false);
+
+  // Stany rozliczania
+  const [isSettleModalVisible, setSettleModalVisible] = useState(false);
+  const [settleFrom, setSettleFrom] = useState(""); // Dłużnik
+  const [settleTo, setSettleTo] = useState(""); // Odbiorca
+  const [settleAmount, setSettleAmount] = useState("");
 
   useEffect(() => {
     fetchEverything();
@@ -64,7 +77,9 @@ export default function GroupDetails() {
       (sum, val) => sum + (parseFloat(val) || 0),
       0,
     );
-    return 100 - totalUsed; // Zwracamy liczbę (number)
+    const diff = 100 - totalUsed;
+    // Jeśli różnica jest mniejsza niż 0.05%, uznajemy, że jest to 100%
+    return Math.abs(diff) < 0.05 ? 0 : diff;
   };
 
   const fetchEverything = async () => {
@@ -108,18 +123,31 @@ export default function GroupDetails() {
     if (remaining !== 0) {
       Alert.alert(
         "Błąd",
-        `Suma procentów musi wynosić 100%. Brakuje: ${remaining}%`,
+        `Suma procentów musi wynosić 100%. Aktualnie brakuje: ${remaining.toFixed(2)}%`,
       );
       return;
     }
 
     try {
       const total = parseFloat(amount);
-      const shares: Record<string, number> = {};
+      if (isNaN(total)) {
+        Alert.alert("Błąd", "Wprowadź poprawną kwotę");
+        return;
+      }
 
-      selectedParticipants.forEach((email) => {
-        const percent = parseFloat(sharesPercent[email]) || 0;
-        shares[email] = (percent / 100) * total;
+      const shares: Record<string, number> = {};
+      let allocatedAmount = 0;
+
+      selectedParticipants.forEach((email, index) => {
+        if (index === selectedParticipants.length - 1) {
+          // Ostatnia osoba otrzymuje "resztę" (np. 100 - 33.33 - 33.33 = 33.34)
+          shares[email] = parseFloat((total - allocatedAmount).toFixed(2));
+        } else {
+          const percent = parseFloat(sharesPercent[email]) || 0;
+          const memberShare = parseFloat(((percent / 100) * total).toFixed(2));
+          shares[email] = memberShare;
+          allocatedAmount += memberShare;
+        }
       });
 
       const expenseRequest = {
@@ -133,9 +161,114 @@ export default function GroupDetails() {
       await api.post("/expenses/add", expenseRequest);
       setModalVisible(false);
       fetchEverything();
+      // Reset formularza
+      setDescription("");
+      setAmount("");
     } catch (error) {
       Alert.alert("Błąd", "Nie udało się dodać wydatku");
     }
+  };
+
+  // FUNKCJA DODAWANIA UŻYTKOWNIKA
+  const handleAddUser = async () => {
+    if (!newUserEmail.trim() || !newUserEmail.includes("@")) {
+      Alert.alert("Błąd", "Wprowadź poprawny adres e-mail");
+      return;
+    }
+
+    try {
+      setIsAddingUser(true);
+
+      // Korzystamy z Twojego endpointu: @PostMapping("/{groupId}/add-user")
+      const response = await api.post(`/groups/${id}/add-user`, null, {
+        params: { email: newUserEmail.trim() },
+      });
+
+      if (response.status === 200) {
+        Alert.alert("Sukces", "Użytkownik został dodany do grupy");
+        setAddUserModalVisible(false);
+        setNewUserEmail("");
+        fetchEverything(); // Odświeżamy dane grupy, aby zobaczyć nowego członka
+      }
+    } catch (error: any) {
+      // Obsługa błędu "Użytkownik o takim mailu nie istnieje" z Twojego serwisu
+      const errorMsg =
+        error.response?.data || "Wystąpił błąd podczas dodawania użytkownika";
+      Alert.alert("Błąd", errorMsg);
+    } finally {
+      setIsAddingUser(false);
+    }
+  };
+
+  const handleSettleUp = async () => {
+    if (!settleFrom || !settleTo || !settleAmount) {
+      Alert.alert("Błąd", "Wypełnij wszystkie pola");
+      return;
+    }
+    try {
+      await api.post("/expenses/settle", null, {
+        params: {
+          groupId: id,
+          fromEmail: settleFrom,
+          toEmail: settleTo,
+          amount: parseFloat(settleAmount),
+        },
+      });
+      // RESET STANÓW
+      setSettleModalVisible(false);
+      setSettleFrom("");
+      setSettleTo("");
+      setSettleAmount("");
+
+      fetchEverything();
+      Alert.alert("Sukces", "Rozliczenie zapisane");
+    } catch (error) {
+      Alert.alert("Błąd", "Nie udało się zapisać rozliczenia");
+    }
+  };
+
+  const openSettleWithData = (email: string, amount: number) => {
+    setSettleFrom("");
+    setSettleTo("");
+    setSettleAmount("");
+
+    if (amount < 0) {
+      setSettleFrom(email);
+      // Nie ustawiamy kwoty od razu, poczekamy aż użytkownik wybierze komu oddaje
+    } else if (amount > 0) {
+      setSettleTo(email);
+      // Jeśli kliknęliśmy osobę na plusie, ustawiamy ją jako odbiorcę
+      // Kwota zostanie zasugerowana, gdy wybierzemy dłużnika
+    }
+
+    setSettleModalVisible(true);
+  };
+
+  const handleSelectToEmail = (toEmail: string) => {
+    setSettleTo(toEmail);
+
+    // Jeśli mamy już dłużnika (settleFrom), obliczamy sugerowaną kwotę
+    if (settleFrom) {
+      const fromBalance = balances[settleFrom] || 0; // ile dłużnik ma na minusie (np. -50)
+      const toBalance = balances[toEmail] || 0; // ile odbiorca ma na plusie (np. 30)
+
+      // Logika: Chcemy oddać tyle, ile dłużnik jest winien,
+      // ALE nie więcej niż odbiorca ma do odzyskania.
+      // Kwota = mniejsza z wartości bezwzględnych długu i nadpłaty.
+      if (fromBalance < 0 && toBalance > 0) {
+        const suggestion = Math.min(Math.abs(fromBalance), toBalance);
+        setSettleAmount(suggestion.toFixed(2));
+      } else if (fromBalance < 0) {
+        // Jeśli odbiorca nie ma nadpłaty, sugerujemy po prostu spłatę całego długu dłużnika
+        setSettleAmount(Math.abs(fromBalance).toFixed(2));
+      }
+    }
+  };
+
+  const swapSettleSides = () => {
+    const tempFrom = settleFrom;
+    setSettleFrom(settleTo);
+    setSettleTo(tempFrom);
   };
 
   if (loading)
@@ -147,29 +280,204 @@ export default function GroupDetails() {
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => router.push("/dashboard")}
           style={styles.backButton}
         >
           <Text style={styles.backText}>← Powrót do listy</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.addUserButton}
+          onPress={() => setAddUserModalVisible(true)}
+        >
+          <Text style={styles.addUserButtonText}>+ Dodaj osobę</Text>
+        </TouchableOpacity>
+
+        {/* MODAL DODAWANIA UŻYTKOWNIKA */}
+        <Modal
+          visible={isAddUserModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setAddUserModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Dodaj członka</Text>
+              <Text style={styles.modalSubtitle}>
+                Wpisz e-mail osoby, którą chcesz dodać do tej grupy.
+              </Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="email@przyklad.pl"
+                value={newUserEmail}
+                onChangeText={setNewUserEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoFocus
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setAddUserModalVisible(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Anuluj</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.createButton]}
+                  onPress={handleAddUser}
+                  disabled={isAddingUser}
+                >
+                  {isAddingUser ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.createButtonText}>Dodaj</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={isSettleModalVisible} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Rozlicz się</Text>
+
+              <Text style={styles.label}>Kto oddaje pieniądze?</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipContainer}
+              >
+                {groupMembers.map((email) => (
+                  <TouchableOpacity
+                    key={email}
+                    style={[
+                      styles.chip,
+                      settleFrom === email && styles.chipSelectedParticipant,
+                    ]}
+                    onPress={() => setSettleFrom(email)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        settleFrom === email && styles.chipTextSelected,
+                      ]}
+                    >
+                      {email}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* PRZYCISK ZAMIANY STRON */}
+              <TouchableOpacity
+                style={styles.swapButton}
+                onPress={swapSettleSides}
+              >
+                <Text style={styles.swapButtonText}>⇅ Zamień strony</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.label}>Komu oddaje?</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipContainer}
+              >
+                {groupMembers.map((email) => (
+                  <TouchableOpacity
+                    key={email}
+                    style={[
+                      styles.chip,
+                      settleTo === email && styles.chipSelectedPayer,
+                    ]}
+                    onPress={() => handleSelectToEmail(email)} // <--- TUTAJ ZMIANA
+                  >
+                    <Text
+                      style={[
+                        styles.chipText,
+                        settleTo === email && styles.chipTextSelected,
+                      ]}
+                    >
+                      {email}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Kwota rozliczenia"
+                keyboardType="numeric"
+                value={settleAmount}
+                onChangeText={setSettleAmount}
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setSettleModalVisible(false)}
+                >
+                  <Text style={styles.buttonText}>Anuluj</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, { backgroundColor: "#3498db" }]}
+                  onPress={handleSettleUp}
+                >
+                  <Text style={styles.buttonText}>Zatwierdź</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        <TouchableOpacity
+          style={[styles.addUserButton, { borderColor: "#3498db" }]}
+          onPress={() => setSettleModalVisible(true)}
+        >
+          <Text style={[styles.addUserButtonText, { color: "#3498db" }]}>
+            🤝 Rozlicz
+          </Text>
+        </TouchableOpacity>
+
         <Text style={styles.title}>{groupName}</Text>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Bilans grupy</Text>
-          {Object.entries(balances).map(([email, amount]) => (
-            <View key={email} style={styles.balanceRow}>
-              <Text style={styles.emailText}>{email}</Text>
-              <Text
-                style={[
-                  styles.amountText,
-                  { color: amount >= 0 ? "#27ae60" : "#e74c3c" },
-                ]}
+          <Text style={styles.sectionTitle}>Członkowie i bilans</Text>
+          {groupMembers.map((email) => {
+            const amount = balances[email] || 0;
+
+            return (
+              <TouchableOpacity
+                key={email}
+                style={styles.balanceRow}
+                onPress={() => openSettleWithData(email, amount)} // <--- Dodajemy akcję
               >
-                {amount >= 0 ? `+${amount.toFixed(2)}` : amount.toFixed(2)} zł
-              </Text>
-            </View>
-          ))}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.emailText}>{email}</Text>
+                  <Text style={styles.settleHint}>Kliknij, aby rozliczyć</Text>
+                </View>
+                <Text
+                  style={[
+                    styles.amountText,
+                    {
+                      color:
+                        amount > 0
+                          ? "#27ae60"
+                          : amount < 0
+                            ? "#e74c3c"
+                            : "#95a5a6",
+                    },
+                  ]}
+                >
+                  {amount > 0 ? `+${amount.toFixed(2)}` : amount.toFixed(2)} zł
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <Text style={styles.sectionTitle}>Wydatki</Text>
@@ -177,13 +485,42 @@ export default function GroupDetails() {
           <Text style={styles.emptyText}>Brak wydatków w tej grupie</Text>
         ) : (
           expenses.map((item) => (
-            <View key={item.id} style={styles.expenseCard}>
-              <View>
-                <Text style={styles.expenseDesc}>{item.description}</Text>
-                <Text style={styles.expenseSub}>Płacił: {item.paidById}</Text>
+            <View
+              key={item.id}
+              style={[
+                styles.expenseCard,
+                item.isSettlement && {
+                  backgroundColor: "#f8f9fa",
+                  borderLeftWidth: 5,
+                  borderLeftColor: "#3498db",
+                },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.expenseDesc,
+                    item.isSettlement && { color: "#7f8c8d", fontSize: 14 },
+                  ]}
+                >
+                  {item.isSettlement
+                    ? "🤝 " + item.description
+                    : item.description}
+                </Text>
+                <Text style={styles.expenseSub}>
+                  {item.isSettlement
+                    ? `Rozliczone: ${new Date(item.createdAt).toLocaleDateString()}`
+                    : `${new Date(item.createdAt).toLocaleDateString()}` +
+                      ` ${item.paidById}`}
+                </Text>
               </View>
-              <Text style={styles.expenseAmount}>
-                {(item.totalAmount || 0).toFixed(2)} zł
+              <Text
+                style={[
+                  styles.expenseAmount,
+                  item.isSettlement && { color: "#3498db" },
+                ]}
+              >
+                {item.totalAmount.toFixed(2)} zł
               </Text>
             </View>
           ))
@@ -522,5 +859,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#555",
     flex: 1,
+  },
+  addUserButton: {
+    backgroundColor: "#e8f5e9",
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    alignSelf: "flex-start",
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#2ecc71",
+  },
+  addUserButtonText: {
+    color: "#27ae60",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 15,
+  },
+  cancelButtonText: {
+    color: "#7f8c8d",
+    fontWeight: "600",
+  },
+  createButton: {
+    backgroundColor: "#2ecc71",
+  },
+  createButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  settleHint: {
+    fontSize: 10,
+    color: "#aaa",
+    marginTop: 2,
+  },
+  swapButton: {
+    alignSelf: "center",
+    backgroundColor: "#f0f0f0",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    marginVertical: 5,
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  swapButtonText: {
+    fontSize: 12,
+    color: "#3498db",
+    fontWeight: "bold",
   },
 });
