@@ -51,6 +51,22 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="group/[id]" // Ścieżka do Twojego pliku
+        options={{
+          href: null, // To sprawia, że zakładka nie pojawia się w dolnym pasku
+          title: "Szczegóły grupy",
+        }}
+      />
+      <Tabs.Screen
+        name="scanReceiptScreen"
+        options={{
+          title: "Skaner",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="camera-sharp" size={24} color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

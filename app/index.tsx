@@ -77,9 +77,7 @@ export default function LoginScreen() {
           <Text style={styles.buttonText}>Zaloguj się</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={() => Alert.alert("Info", "Tu będzie rejestracja")}
-        >
+        <TouchableOpacity onPress={() => router.push("/register")}>
           <Text style={styles.linkText}>Nie masz konta? Zarejestruj się</Text>
         </TouchableOpacity>
       </View>

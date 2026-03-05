@@ -1,11 +1,12 @@
 import api from "@/constants/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Modal,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +17,7 @@ import {
 interface Group {
   id: string;
   name: string;
+  members?: any[];
   memberEmails: string[];
   userBalance?: number;
 }
@@ -27,30 +29,38 @@ export default function Dashboard() {
   const [newGroupName, setNewGroupName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
 
   // Dodajemy tylko stan dla bilansu, bez zmiany logiki grup
   const [totalBalance, setTotalBalance] = useState(0);
 
-  useEffect(() => {
-    fetchGroups();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      fetchGroups();
+    }, []),
+  );
 
   const fetchGroups = async () => {
     try {
       const email = await AsyncStorage.getItem("userEmail");
       if (email) {
-        const response = await api.get(`/groups/user/${email}/with-balances`);
-        console.log("DANE Z BACKENDU:", JSON.stringify(response.data, null, 2));
-        setGroups(response.data);
-        const balanceResponse = await api.get(
-          `/expenses/user/${email}/total-balance`,
+        const [groupsRes, balanceRes] = await Promise.all([
+          api.get(`/groups/user/${email}/with-balances`),
+          api.get(`/expenses/user/${email}/total-balance`),
+        ]);
+
+        console.log(
+          "DANE Z BACKENDU:",
+          JSON.stringify(groupsRes.data, null, 2),
         );
-        setTotalBalance(balanceResponse.data);
+        setGroups(groupsRes.data);
+        setTotalBalance(balanceRes.data);
       }
     } catch (error) {
-      console.error("Błąd pobierania grup:", error);
+      console.error("Błąd pobierania danych:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -92,6 +102,11 @@ export default function Dashboard() {
     }
   };
 
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchGroups();
+  };
+
   return (
     <View style={styles.container}>
       {/* TOOLBAR NA GÓRZE */}
@@ -117,6 +132,9 @@ export default function Dashboard() {
       <FlatList
         data={groups}
         keyExtractor={(item) => item.id}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.groupCard}
@@ -129,13 +147,15 @@ export default function Dashboard() {
                   {item.name ?? "Brak nazwy"}
                 </Text>
                 <Text style={styles.groupInfo}>
-                  {Array.isArray(item.memberEmails)
-                    ? item.memberEmails.length
-                    : 0}{" "}
+                  {/* Wyświetli długość dowolnej tablicy, która nie jest nullem */}
+                  {Array.isArray(item.members)
+                    ? item.members.length
+                    : Array.isArray(item.memberEmails)
+                      ? item.memberEmails.length
+                      : 0}{" "}
                   członków
                 </Text>
               </View>
-
               {/* PRAWA STRONA: Bilans użytkownika */}
               <View style={styles.groupBalanceContainer}>
                 <Text style={styles.balanceLabelSmall}>Twój stan</Text>
