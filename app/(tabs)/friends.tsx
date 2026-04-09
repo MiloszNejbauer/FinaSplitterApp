@@ -13,14 +13,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+// Import dla obsługi notcha
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function FriendsScreen() {
-  const [friends, setFriends] = useState<string[]>([]);
+  const [friends, setFriends] = useState<{ username: string; email: string }[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const [isModalVisible, setModalVisible] = useState(false);
   const [newFriendEmail, setNewFriendEmail] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
+
+  // Pobieramy insets dla poprawnego wyświetlania na iOS
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     fetchFriends();
@@ -32,10 +38,7 @@ export default function FriendsScreen() {
       const email = await AsyncStorage.getItem("userEmail");
 
       if (!email) {
-        Alert.alert(
-          "Błąd",
-          "Nie znaleziono danych użytkownika. Zaloguj się ponownie.",
-        );
+        Alert.alert("Błąd", "Nie znaleziono danych użytkownika.");
         router.replace("/");
         return;
       }
@@ -72,25 +75,10 @@ export default function FriendsScreen() {
     }
   };
 
-  const renderFriend = ({ item }: { item: string }) => (
-    <View style={styles.friendCard}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{item[0].toUpperCase()}</Text>
-      </View>
-      <Text style={styles.friendEmail}>{item}</Text>
-    </View>
-  );
-
   return (
     <View style={{ flex: 1, backgroundColor: "#f0f2f5" }}>
-      <View style={styles.container}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Text style={styles.backText}>← Powrót</Text>
-        </TouchableOpacity>
-
+      {/* Container z dynamicznym paddingTop dla notcha */}
+      <View style={[styles.container, { paddingTop: insets.top + 20 }]}>
         <Text style={styles.title}>Moi znajomi</Text>
 
         {loading ? (
@@ -98,13 +86,21 @@ export default function FriendsScreen() {
         ) : (
           <FlatList
             data={friends}
-            keyExtractor={(item) => item}
+            keyExtractor={(item) => item.email} // Email nadal jest dobrym kluczem (unikalny)
             renderItem={({ item }) => (
               <View style={styles.friendCard}>
                 <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{item.toUpperCase()}</Text>
+                  {/* Wyświetlamy pierwszą literę nazwy użytkownika */}
+                  <Text style={styles.avatarText}>
+                    {item.username ? item.username[0].toUpperCase() : "?"}
+                  </Text>
                 </View>
-                <Text style={styles.friendEmail}>{item}</Text>
+                <View>
+                  {/* Wyświetlamy nazwę użytkownika jako główny tekst */}
+                  <Text style={styles.friendUsername}>{item.username}</Text>
+                  {/* Opcjonalnie: mniejszy email pod spodem */}
+                  <Text style={styles.friendEmailSubtitle}>{item.email}</Text>
+                </View>
               </View>
             )}
             ListEmptyComponent={
@@ -114,13 +110,13 @@ export default function FriendsScreen() {
         )}
       </View>
 
-      {/* Przycisk FAB */}
+      {/* Przycisk FAB z paddingiem na dół dla iPhone'ów bez przycisku Home */}
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: insets.bottom + 20 }]}
         onPress={() => setModalVisible(true)}
         activeOpacity={0.8}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Text style={styles.fabText}>Dodaj znajomych</Text>
       </TouchableOpacity>
 
       {/* Modal dodawania */}
@@ -131,9 +127,11 @@ export default function FriendsScreen() {
             <TextInput
               style={styles.input}
               placeholder="Email znajomego"
+              placeholderTextColor="#999"
               value={newFriendEmail}
               onChangeText={setNewFriendEmail}
               autoCapitalize="none"
+              keyboardType="email-address"
             />
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -157,10 +155,17 @@ export default function FriendsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, paddingTop: 60 },
-  backButton: { marginBottom: 20 },
-  backText: { color: "#2ecc71", fontWeight: "bold" },
-  title: { fontSize: 28, fontWeight: "bold", marginBottom: 25 },
+  container: {
+    flex: 1,
+    paddingHorizontal: 20,
+    // paddingTop usunięty stąd, jest nadawany dynamicznie w komponencie
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    marginBottom: 25,
+    color: "#2c3e50",
+  },
   friendCard: {
     backgroundColor: "#fff",
     padding: 15,
@@ -168,33 +173,58 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 10,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#3498db",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 15,
   },
-  avatarText: { color: "#fff", fontWeight: "bold" },
-  friendEmail: { fontSize: 16, color: "#333" },
-  emptyText: { textAlign: "center", color: "#aaa", marginTop: 50 },
+  avatarText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 18,
+  },
+  friendEmail: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "500",
+  },
+  emptyText: {
+    textAlign: "center",
+    color: "#aaa",
+    marginTop: 50,
+    fontSize: 16,
+  },
   fab: {
     position: "absolute",
-    right: 25,
-    bottom: 25,
+    right: 20,
     backgroundColor: "#2ecc71",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    paddingHorizontal: 20,
+    height: 56,
+    borderRadius: 28,
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     elevation: 8,
-    zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
   },
-  fabText: { color: "#fff", fontSize: 30, fontWeight: "300" },
+  fabText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
@@ -204,26 +234,48 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: "#fff",
     width: "85%",
-    padding: 20,
-    borderRadius: 15,
+    padding: 25,
+    borderRadius: 20,
+    elevation: 20,
   },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 15 },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 20,
+    color: "#2c3e50",
+    textAlign: "center",
+  },
   input: {
     backgroundColor: "#f9f9f9",
-    padding: 12,
-    borderRadius: 10,
+    padding: 15,
+    borderRadius: 12,
     marginBottom: 20,
     borderWidth: 1,
     borderColor: "#eee",
+    color: "#333", // Poprawka widoczności tekstu iOS
+    fontSize: 16,
   },
-  modalButtons: { flexDirection: "row", justifyContent: "space-between" },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
   modalButton: {
     flex: 0.48,
-    padding: 12,
-    borderRadius: 10,
+    padding: 14,
+    borderRadius: 12,
     alignItems: "center",
   },
   cancelButton: { backgroundColor: "#95a5a6" },
   saveButton: { backgroundColor: "#2ecc71" },
-  buttonText: { color: "#fff", fontWeight: "bold" },
+  buttonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  friendUsername: {
+    fontSize: 16,
+    color: "#2c3e50",
+    fontWeight: "bold",
+  },
+  friendEmailSubtitle: {
+    fontSize: 12,
+    color: "#7f8c8d",
+    marginTop: 2,
+  },
 });

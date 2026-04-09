@@ -9,7 +9,6 @@ export default function TabLayout() {
         tabBarInactiveTintColor: "#7f8c8d",
         headerShown: false, // Ukrywamy nagłówek, bo masz własny Toolbar w dashboardzie
         tabBarStyle: {
-          height: 60,
           paddingBottom: 10,
           paddingTop: 10,
         },

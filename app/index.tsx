@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -18,33 +17,38 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
-    // Walidacja lokalna
     if (!email || !password) {
       Alert.alert("Błąd", "Wypełnij wszystkie pola");
       return;
     }
 
     try {
-      // Wołamy Twój backend: @PostMapping("/login")
-      // Zwróć uwagę na składnię query params (tak jak testowaliśmy w Postmanie)
-      const response = await api.post(
-        `/users/login?email=${email}&password=${password}`,
-      );
+      // 1. Wysyłamy dane jako obiekt JSON (zgodnie ze standardem JWT)
+      const response = await api.post("/users/login", {
+        email: email.toLowerCase().trim(),
+        password: password,
+      });
 
       if (response.status === 200) {
-        Alert.alert("Sukces", `Witaj ponownie, ${response.data.username}!`);
+        // 2. Wyciągamy token (zakładając, że backend zwraca { "token": "..." })
+        const { token } = response.data;
 
-        await AsyncStorage.setItem("userEmail", email);
+        if (token) {
+          // 3. Zapisujemy dane do pamięci urządzenia
+          await AsyncStorage.setItem("userToken", token);
+          await AsyncStorage.setItem("userEmail", email.toLowerCase().trim());
 
-        router.replace("/dashboard");
+          // Opcjonalnie: od razu ustaw token w axios, żeby nie czekać na restart aplikacji
+          api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+          Alert.alert("Sukces", "Zalogowano pomyślnie!");
+          router.replace("/dashboard");
+        }
       }
     } catch (error: any) {
       console.error("Login error:", error.response?.data || error.message);
-      if (Platform.OS === "web") {
-        alert(`Błąd logowania: ${error.message}`);
-      } else {
-        Alert.alert("Błąd logowania", "Niepoprawny email lub hasło");
-      }
+      const msg = error.response?.data || "Niepoprawny email lub hasło";
+      Alert.alert("Błąd logowania", msg);
     }
   };
 
@@ -63,6 +67,7 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
+          placeholderTextColor={"#999"}
         />
 
         <TextInput
@@ -71,6 +76,7 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          placeholderTextColor={"#999"}
         />
 
         <TouchableOpacity style={styles.button} onPress={handleLogin}>

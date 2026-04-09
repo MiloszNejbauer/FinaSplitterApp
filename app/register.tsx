@@ -66,6 +66,7 @@ export default function RegisterScreen() {
         placeholder="Nazwa użytkownika"
         value={username}
         onChangeText={setUsername}
+        placeholderTextColor={"#999"}
       />
       <TextInput
         style={styles.input}
@@ -73,6 +74,7 @@ export default function RegisterScreen() {
         keyboardType="email-address"
         value={email}
         onChangeText={setEmail}
+        placeholderTextColor={"#999"}
       />
       <TextInput
         style={styles.input}
@@ -80,6 +82,7 @@ export default function RegisterScreen() {
         secureTextEntry
         value={password}
         onChangeText={setPassword}
+        placeholderTextColor={"#999"}
       />
 
       <TouchableOpacity style={styles.button} onPress={handleRegister}>

@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface Group {
   id: string;
@@ -33,6 +34,8 @@ export default function Dashboard() {
 
   // Dodajemy tylko stan dla bilansu, bez zmiany logiki grup
   const [totalBalance, setTotalBalance] = useState(0);
+
+  const insets = useSafeAreaInsets();
 
   useFocusEffect(
     useCallback(() => {
@@ -80,19 +83,16 @@ export default function Dashboard() {
       setIsCreating(true);
       const email = await AsyncStorage.getItem("userEmail");
 
-      // Korzystamy z Twojego endpointu @PostMapping("/create")
-      // Zauważ, że używamy params, bo w kontrolerze masz @RequestParam
-      const response = await api.post("/groups/create", null, {
-        params: {
-          name: newGroupName,
-          creatorEmail: email,
-        },
+      // Skoro backend ma @RequestBody, wysyłamy obiekt jako drugi argument:
+      const response = await api.post("/groups/create", {
+        name: newGroupName,
+        creatorEmail: email, // Klucze muszą się zgadzać z polami w Twoim DTO/Recordzie na backendzie
       });
 
-      if (response.status === 200) {
+      if (response.status === 200 || response.status === 201) {
         setModalVisible(false);
         setNewGroupName("");
-        fetchGroups(); // Odświeżamy listę grup
+        fetchGroups();
       }
     } catch (error) {
       console.error("Błąd tworzenia grupy:", error);
@@ -110,7 +110,7 @@ export default function Dashboard() {
   return (
     <View style={styles.container}>
       {/* TOOLBAR NA GÓRZE */}
-      <View style={styles.toolbar}>
+      <View style={[styles.toolbar, { paddingTop: insets.top }]}>
         <Text style={styles.toolbarTitle}>FinaSplitter</Text>
       </View>
 
@@ -202,6 +202,7 @@ export default function Dashboard() {
               value={newGroupName}
               onChangeText={setNewGroupName}
               autoFocus
+              placeholderTextColor="#999"
             />
 
             <View style={styles.modalButtons}>
@@ -230,10 +231,10 @@ export default function Dashboard() {
 
       {/* Zmieniamy onPress w FAB */}
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { bottom: insets.bottom + 20 }]}
         onPress={() => setModalVisible(true)}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Text style={styles.fabText}>Nowa grupa</Text>
       </TouchableOpacity>
     </View>
   );
@@ -245,12 +246,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
   },
   toolbar: {
-    height: 90,
     backgroundColor: "#fff",
     width: "100%",
     justifyContent: "center",
     alignItems: "center",
-    paddingTop: 30,
+    paddingBottom: 15, // Stały odstęp od dołu tekstu do krawędzi paska
     elevation: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -297,16 +297,25 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: 20,
-    bottom: 20,
     backgroundColor: "#2ecc71",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    paddingHorizontal: 20,
+    height: 56,
+    borderRadius: 28,
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    elevation: 5,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
   },
-  fabText: { color: "#fff", fontSize: 30, fontWeight: "bold" },
+  fabText: {
+    color: "#fff",
+    fontSize: 16, // 32 to zdecydowanie za dużo dla długiego tekstu
+    fontWeight: "600", // Pogrubienie dla lepszej czytelności
+    letterSpacing: 0.5, // Subtelny odstęp między literami
+  },
   groupCardContent: {
     flexDirection: "row",
     justifyContent: "space-between",
