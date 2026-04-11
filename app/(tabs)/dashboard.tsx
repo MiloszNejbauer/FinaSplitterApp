@@ -20,6 +20,7 @@ interface Group {
   name: string;
   members?: any[];
   memberEmails: string[];
+  balances?: { [key: string]: number };
   userBalance?: number;
 }
 
@@ -32,8 +33,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
-  // Dodajemy tylko stan dla bilansu, bez zmiany logiki grup
-  const [totalBalance, setTotalBalance] = useState(0);
+  // Stan dla bilansu całkowitego
+  const [totalBalance, setTotalBalance] = useState<Record<string, number>>({});
 
   const insets = useSafeAreaInsets();
 
@@ -47,17 +48,33 @@ export default function Dashboard() {
     try {
       const email = await AsyncStorage.getItem("userEmail");
       if (email) {
-        const [groupsRes, balanceRes] = await Promise.all([
-          api.get(`/groups/user/${email}/with-balances`),
-          api.get(`/expenses/user/${email}/total-balance`),
-        ]);
+        const userEmail = email.toLowerCase();
 
-        console.log(
-          "DANE Z BACKENDU:",
-          JSON.stringify(groupsRes.data, null, 2),
+        // Pobieramy grupy z backendu
+        const response = await api.get(
+          `/groups/user/${userEmail}/with-balances`,
         );
-        setGroups(groupsRes.data);
-        setTotalBalance(balanceRes.data);
+        const fetchedGroups: Group[] = response.data;
+
+        setGroups(fetchedGroups);
+
+        // Obliczamy bilans całkowity dynamicznie na podstawie danych z grup
+        const calculatedTotalBalance: Record<string, number> = {};
+
+        fetchedGroups.forEach((group) => {
+          if (group.balances) {
+            Object.entries(group.balances).forEach(([currency, amount]) => {
+              if (!calculatedTotalBalance[currency]) {
+                calculatedTotalBalance[currency] = 0;
+              }
+              // Dodajemy kwotę z danej grupy do ogólnej puli dla tej waluty
+              calculatedTotalBalance[currency] += amount;
+            });
+          }
+        });
+
+        // Ustawiamy zsumowany obiekt, np. { "PLN": -331.7, "EUR": 50 }
+        setTotalBalance(calculatedTotalBalance);
       }
     } catch (error) {
       console.error("Błąd pobierania danych:", error);
@@ -83,10 +100,9 @@ export default function Dashboard() {
       setIsCreating(true);
       const email = await AsyncStorage.getItem("userEmail");
 
-      // Skoro backend ma @RequestBody, wysyłamy obiekt jako drugi argument:
       const response = await api.post("/groups/create", {
         name: newGroupName,
-        creatorEmail: email, // Klucze muszą się zgadzać z polami w Twoim DTO/Recordzie na backendzie
+        creatorEmail: email,
       });
 
       if (response.status === 200 || response.status === 201) {
@@ -114,17 +130,23 @@ export default function Dashboard() {
         <Text style={styles.toolbarTitle}>FinaSplitter</Text>
       </View>
 
-      {/* SEKCJA BILANSU - PRZYKLEJONA DO LEWEJ Z ODSTĘPEM */}
+      {/* SEKCJA BILANSU CAŁKOWITEGO */}
       <View style={styles.balanceContainer}>
-        <Text style={styles.balanceText}>
-          Twój bilans:
-          <Text style={{ color: totalBalance >= 0 ? "#27ae60" : "#e74c3c" }}>
-            {totalBalance >= 0
-              ? ` +${totalBalance.toFixed(2)}`
-              : ` ${totalBalance.toFixed(2)}`}{" "}
-            zł
+        <Text style={styles.balanceText}>Twój bilans całkowity:</Text>
+        {Object.keys(totalBalance).length > 0 ? (
+          Object.entries(totalBalance).map(([currency, value]) => (
+            <Text key={currency} style={styles.balanceValueText}>
+              <Text style={{ color: value >= 0 ? "#27ae60" : "#e74c3c" }}>
+                {value >= 0 ? `+${value.toFixed(2)}` : `${value.toFixed(2)}`}{" "}
+                {currency}
+              </Text>
+            </Text>
+          ))
+        ) : (
+          <Text style={[styles.balanceValueText, { color: "#95a5a6" }]}>
+            0.00 PLN
           </Text>
-        </Text>
+        )}
       </View>
 
       <Text style={styles.header}>Twoje Grupy</Text>
@@ -135,54 +157,72 @@ export default function Dashboard() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.groupCard}
-            onPress={() => router.push(`/group/${item.id}` as any)}
-          >
-            <View style={styles.groupCardContent}>
-              {/* LEWA STRONA: Nazwa i liczba członków */}
-              <View style={styles.groupLeftInfo}>
-                <Text style={styles.groupName}>
-                  {item.name ?? "Brak nazwy"}
-                </Text>
-                <Text style={styles.groupInfo}>
-                  {/* Wyświetli długość dowolnej tablicy, która nie jest nullem */}
-                  {Array.isArray(item.members)
-                    ? item.members.length
-                    : Array.isArray(item.memberEmails)
-                      ? item.memberEmails.length
-                      : 0}{" "}
-                  członków
-                </Text>
+        renderItem={({ item }) => {
+          // Pobieramy waluty dostępne w danej grupie
+          const groupCurrencyKeys = item.balances
+            ? Object.keys(item.balances)
+            : [];
+
+          return (
+            <TouchableOpacity
+              style={styles.groupCard}
+              onPress={() => router.push(`/group/${item.id}` as any)}
+            >
+              <View style={styles.groupCardContent}>
+                {/* LEWA STRONA: Nazwa i liczba członków */}
+                <View style={styles.groupLeftInfo}>
+                  <Text style={styles.groupName}>
+                    {item.name ?? "Brak nazwy"}
+                  </Text>
+                  <Text style={styles.groupInfo}>
+                    {Array.isArray(item.members)
+                      ? item.members.length
+                      : Array.isArray(item.memberEmails)
+                        ? item.memberEmails.length
+                        : 0}{" "}
+                    członków
+                  </Text>
+                </View>
+
+                {/* PRAWA STRONA: Bilans użytkownika we wszystkich walutach w grupie */}
+                <View style={styles.groupBalanceContainer}>
+                  <Text style={styles.balanceLabelSmall}>Twój stan</Text>
+                  {groupCurrencyKeys.length > 0 ? (
+                    groupCurrencyKeys.map((curr) => {
+                      const val = item.balances![curr];
+                      return (
+                        <Text
+                          key={curr}
+                          style={[
+                            styles.groupBalanceAmount,
+                            { color: val >= 0 ? "#27ae60" : "#e74c3c" },
+                          ]}
+                        >
+                          {val >= 0
+                            ? `+${val.toFixed(2)}`
+                            : `${val.toFixed(2)}`}{" "}
+                          {curr}
+                        </Text>
+                      );
+                    })
+                  ) : (
+                    <Text
+                      style={[styles.groupBalanceAmount, { color: "#95a5a6" }]}
+                    >
+                      0.00 PLN
+                    </Text>
+                  )}
+                </View>
               </View>
-              {/* PRAWA STRONA: Bilans użytkownika */}
-              <View style={styles.groupBalanceContainer}>
-                <Text style={styles.balanceLabelSmall}>Twój stan</Text>
-                <Text
-                  style={[
-                    styles.groupBalanceAmount,
-                    {
-                      color:
-                        (item.userBalance ?? 0) >= 0 ? "#27ae60" : "#e74c3c",
-                    },
-                  ]}
-                >
-                  {(item.userBalance ?? 0) >= 0
-                    ? `+${(item.userBalance ?? 0).toFixed(2)}`
-                    : `${(item.userBalance ?? 0).toFixed(2)}`}{" "}
-                  zł
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        )}
+            </TouchableOpacity>
+          );
+        }}
         ListEmptyComponent={
           <Text style={styles.empty}>
             Nie należysz jeszcze do żadnej grupy.
           </Text>
         }
-        contentContainerStyle={{ paddingHorizontal: 20 }} // Odstęp dla kart
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
       />
 
       {/* MODAL DO TWORZENIA GRUPY */}
@@ -229,7 +269,7 @@ export default function Dashboard() {
         </View>
       </Modal>
 
-      {/* Zmieniamy onPress w FAB */}
+      {/* FAB */}
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 20 }]}
         onPress={() => setModalVisible(true)}
@@ -250,7 +290,7 @@ const styles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
     alignItems: "center",
-    paddingBottom: 15, // Stały odstęp od dołu tekstu do krawędzi paska
+    paddingBottom: 15,
     elevation: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -264,13 +304,19 @@ const styles = StyleSheet.create({
   },
   balanceContainer: {
     marginTop: 15,
-    marginLeft: 20, // Lekki odstęp od lewej krawędzi
+    marginLeft: 20,
     marginBottom: 10,
+    minHeight: 40, // Dodane, aby kontener pomieścił wiele walut i nie "skakał"
   },
   balanceText: {
     fontSize: 18,
     fontWeight: "600",
     color: "#333",
+  },
+  balanceValueText: {
+    fontSize: 20, // Nowy styl dla kwot w głównym widoku
+    fontWeight: "bold",
+    marginTop: 2,
   },
   header: {
     fontSize: 24,
@@ -312,9 +358,9 @@ const styles = StyleSheet.create({
   },
   fabText: {
     color: "#fff",
-    fontSize: 16, // 32 to zdecydowanie za dużo dla długiego tekstu
-    fontWeight: "600", // Pogrubienie dla lepszej czytelności
-    letterSpacing: 0.5, // Subtelny odstęp między literami
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
   groupCardContent: {
     flexDirection: "row",
@@ -322,10 +368,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   groupLeftInfo: {
-    flex: 1, // Zajmuje całą dostępną przestrzeń po lewej
+    flex: 1,
   },
   groupBalanceContainer: {
-    alignItems: "flex-end", // Wyrównanie tekstu do prawej
+    alignItems: "flex-end",
     marginLeft: 10,
   },
   balanceLabelSmall: {

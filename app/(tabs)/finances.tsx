@@ -1,15 +1,18 @@
 import api from "@/constants/api";
 import { Color } from "@/constants/TWPalette";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Picker } from "@react-native-picker/picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect } from "expo-router"; // Dodany import dla odświeżania
-import React, { useCallback, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
-  Dimensions,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { BarChart } from "react-native-gifted-charts";
@@ -20,6 +23,11 @@ interface ChartItem {
   label: string;
   frontColor?: string;
   gradientColor?: string;
+}
+
+interface Group {
+  id: string;
+  name: string;
 }
 
 const shortPolishMonths: { [key: string]: string } = {
@@ -37,63 +45,61 @@ const shortPolishMonths: { [key: string]: string } = {
   DECEMBER: "Gru",
 };
 
-const colorThemes = {
-  green: { name: "green", primary: 500, accent: 600 },
-};
-
 export default function FinancesScreen() {
   const insets = useSafeAreaInsets();
-  const [chartData, setChartData] = useState<ChartItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Stan dla wykresu ogólnego
+  const [chartData, setChartData] = useState<ChartItem[]>([]);
   const [totalAllTime, setTotalAllTime] = useState(0);
-  const [colorTheme, setColorTheme] =
-    useState<keyof typeof colorThemes>("green");
 
-  const theme = colorThemes[colorTheme];
-  const themeColor = Color[theme.name as keyof typeof Color];
+  // Stan dla grup i wykresu szczegółowego
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
+  const [groupChartData, setGroupChartData] = useState<ChartItem[]>([]);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupTotal, setGroupTotal] = useState(0);
 
-  const bgcolors = [
-    Color[colorThemes[colorTheme].name as keyof typeof Color][50],
-    "#ffffff",
-    Color[colorThemes[colorTheme].name as keyof typeof Color][50],
-  ] as const;
+  const bgcolors = [Color.green[50], "#ffffff", Color.green[50]] as const;
 
-  // useFocusEffect zamiast useEffect odpali się za każdym razem, gdy ekran stanie się aktywny
   useFocusEffect(
     useCallback(() => {
-      fetchFinances();
+      fetchInitialData();
     }, []),
   );
 
-  const fetchFinances = async () => {
+  // Pobieranie danych początkowych (wydatki ogólne i lista grup)
+  const fetchInitialData = async () => {
     try {
       setLoading(true);
       const email = await AsyncStorage.getItem("userEmail");
-      const response = await api.get(`/expenses/user/${email}/monthly-summary`);
 
-      const rawLabels = Object.keys(response.data);
-      const values = Object.values(response.data) as number[];
+      // DODAJEMY TO SPRAWDZENIE:
+      if (!email) {
+        console.warn("Nie znaleziono adresu e-mail w AsyncStorage.");
+        setLoading(false);
+        return; // Przerywamy funkcję, jeśli e-mail jest null
+      }
 
-      setTotalAllTime(values.reduce((a: number, b: number) => a + b, 0));
+      // Teraz TypeScript wie, że 'email' jest stringiem i błąd zniknie
+      const [financesRes, groupsRes] = await Promise.all([
+        api.get(`/expenses/user/${email}/monthly-summary`),
+        api.get(`/groups/user/${email.toLowerCase()}/with-balances`),
+      ]);
 
-      const formattedData: ChartItem[] = rawLabels.map((label, index) => {
-        let monthKey = label;
+      // ... reszta kodu bez zmian ...
+      const rawLabels = Object.keys(financesRes.data);
+      const values = Object.values(financesRes.data) as number[];
+      setTotalAllTime(values.reduce((a, b) => a + b, 0));
 
-        // Inteligentne wyciąganie nazwy miesiąca niezależnie od formatu
-        if (label.includes(" ")) {
-          const parts = label.split(" ");
-          // Jeśli pierwsza część to liczba (np. "2024"), weź drugą część
-          monthKey = isNaN(Number(parts[0])) ? parts[0] : parts[1];
-        } else if (label.includes("-")) {
-          // Obsługa formatu np. "2024-04"
-          const monthIndex = parseInt(label.split("-")[1], 10) - 1;
-          const monthsNames = Object.keys(shortPolishMonths);
-          monthKey = monthsNames[monthIndex];
-        }
-
+      const formattedData = rawLabels.map((label, index) => {
+        let monthKey = label.includes("-")
+          ? Object.keys(shortPolishMonths)[
+              parseInt(label.split("-")[1], 10) - 1
+            ]
+          : label;
         const shortMonth =
           shortPolishMonths[monthKey.toUpperCase()] || monthKey.substring(0, 3);
-
         return {
           value: values[index],
           label: shortMonth,
@@ -101,36 +107,104 @@ export default function FinancesScreen() {
           gradientColor: "#8ce8b1",
         };
       });
-
       setChartData(formattedData);
+
+      const userGroups = groupsRes.data;
+      setGroups(userGroups);
+      if (userGroups.length > 0) {
+        setSelectedGroupId(userGroups[0].id);
+      }
     } catch (e) {
-      console.error("Błąd pobierania finansów:", e);
+      console.error("Błąd ładowania danych:", e);
     } finally {
       setLoading(false);
     }
   };
 
+  const openGroupSelector = () => {
+    if (Platform.OS === "ios") {
+      const options = [...groups.map((g) => g.name), "Anuluj"];
+      const cancelIndex = options.length - 1;
+
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: cancelIndex,
+          title: "Wybierz grupę",
+        },
+        (buttonIndex) => {
+          if (buttonIndex !== cancelIndex) {
+            setSelectedGroupId(groups[buttonIndex].id);
+          }
+        },
+      );
+    }
+  };
+
+  // Pobieranie szczegółów wydatków dla konkretnej grupy
+  const fetchGroupSpending = async (groupId: string) => {
+    if (!groupId) return;
+    try {
+      setGroupLoading(true);
+      // Zakładamy endpoint, który zwraca sumy wydatków per członek: { "User1": 150.0, "User2": 200.0 }
+      const response = await api.get(
+        `/groups/group/${groupId}/member-spending-summary`,
+      );
+
+      const data = response.data;
+
+      const total = Object.values(data).reduce(
+        (acc: number, curr: any) => acc + curr,
+        0,
+      );
+      setGroupTotal(total as number);
+
+      const formatted: ChartItem[] = Object.entries(data).map(
+        ([name, amount]) => ({
+          value: amount as number,
+          label: name.split(" ")[0], // Bierzemy tylko pierwsze imię/nick
+          frontColor: "#3498db",
+          gradientColor: "#85c1e9",
+        }),
+      );
+
+      setGroupChartData(formatted);
+    } catch (e) {
+      console.error("Błąd pobierania wydatków grupy:", e);
+      setGroupChartData([]);
+    } finally {
+      setGroupLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedGroupId) {
+      fetchGroupSpending(selectedGroupId);
+    }
+  }, [selectedGroupId]);
+
+  const maxValueGeneral =
+    chartData.length > 0
+      ? Math.max(...chartData.map((d) => d.value)) * 1.4
+      : 100;
+  const maxValueGroup =
+    groupChartData.length > 0
+      ? Math.max(...groupChartData.map((d) => d.value)) * 1.4
+      : 100;
+
   if (loading && chartData.length === 0) {
-    // Pokazujemy loader tylko przy pierwszym ładowaniu, żeby nie migał ekran przy przełączaniu zakładek
     return (
       <ActivityIndicator size="large" color="#2ecc71" style={{ flex: 1 }} />
     );
   }
 
-  const screenWidth = Dimensions.get("window").width;
-  const maxValue =
-    chartData.length > 0
-      ? Math.max(...chartData.map((d) => d.value)) * 1.4
-      : 100;
-
   return (
-    <View style={[styles.container, { backgroundColor: "#f8f9fa" }]}>
-      {/* <StatusBar style="dark" /> */}
+    <View style={styles.container}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingTop: insets.top,
-          paddingBottom: insets.bottom,
+          paddingBottom: insets.bottom + 20,
           paddingHorizontal: 20,
         }}
       >
@@ -143,77 +217,130 @@ export default function FinancesScreen() {
           <Text style={styles.summaryValue}>{totalAllTime.toFixed(2)} zł</Text>
         </View>
 
+        {/* WYKRES 1: OGÓLNY */}
         <Text style={styles.sectionTitle}>Wydatki miesięczne</Text>
+        <View style={styles.chartWrapper}>
+          <LinearGradient style={styles.gradientWrapper} colors={bgcolors}>
+            <BarChart
+              data={chartData}
+              barWidth={28}
+              spacing={24}
+              roundedTop
+              noOfSections={4}
+              maxValue={maxValueGeneral}
+              isAnimated
+              showGradient
+              yAxisTextStyle={styles.axisText}
+              xAxisLabelTextStyle={styles.axisText}
+              renderTooltip={(item: any) => (
+                <View style={styles.tooltipContainer}>
+                  <Text style={styles.tooltipText}>
+                    {item.value.toFixed(2)} zł
+                  </Text>
+                </View>
+              )}
+            />
+          </LinearGradient>
+        </View>
 
-        {chartData && chartData.length > 0 ? (
-          <View style={styles.chartWrapper}>
-            <LinearGradient style={styles.gradientWrapper} colors={bgcolors}>
+        <View style={{ height: 30 }} />
+
+        {/* SEKCJA WYBORU GRUPY */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Wydatki w grupie</Text>
+        </View>
+
+        {Platform.OS === "ios" ? (
+          <TouchableOpacity
+            style={styles.iosSelector}
+            onPress={openGroupSelector}
+          >
+            <View style={styles.iosSelectorContent}>
+              <Text style={styles.iosSelectorText}>
+                {groups.find((g) => g.id === selectedGroupId)?.name ||
+                  "Wybierz grupę"}
+              </Text>
+              <Text style={styles.iosSelectorArrow}>▾</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={selectedGroupId}
+              onValueChange={(itemValue) => setSelectedGroupId(itemValue)}
+              style={styles.picker}
+              dropdownIconColor="#2c3e50"
+            >
+              {groups.map((group) => (
+                <Picker.Item
+                  key={group.id}
+                  label={group.name}
+                  value={group.id}
+                />
+              ))}
+            </Picker>
+          </View>
+        )}
+
+        {/* --- NOWA SEKCJA Z SUMĄ GRUPY --- */}
+        {!groupLoading && groupChartData.length > 0 && (
+          <View style={styles.groupTotalCard}>
+            <Text style={styles.groupTotalLabel}>Suma wydatków grupy:</Text>
+            <Text style={styles.groupTotalValue}>
+              {groupTotal.toFixed(2)} zł
+            </Text>
+          </View>
+        )}
+
+        {/* WYKRES 2: GRUPOWY */}
+        {groupLoading ? (
+          <ActivityIndicator color="#2ecc71" style={{ marginVertical: 40 }} />
+        ) : groupChartData.length > 0 ? (
+          <View style={[styles.chartWrapper, { marginBottom: 20 }]}>
+            <LinearGradient
+              style={styles.gradientWrapper}
+              colors={["#ebf5fb", "#ffffff", "#ebf5fb"]}
+            >
               <BarChart
-                data={chartData}
-                barWidth={28}
-                spacing={24}
+                data={groupChartData}
+                barWidth={35}
+                spacing={30}
                 roundedTop
-                roundedBottom={false}
-                hideRules={false}
-                rulesColor="rgba(0,0,0,0.05)"
-                xAxisThickness={1}
-                xAxisColor="rgba(0,0,0,0.1)"
-                yAxisThickness={0}
-                yAxisTextStyle={{ color: "#7f8c8d", fontSize: 12 }}
-                xAxisLabelTextStyle={{
-                  color: "#7f8c8d",
-                  fontSize: 12,
-                  textAlign: "center",
-                }}
                 noOfSections={4}
-                maxValue={maxValue}
+                maxValue={maxValueGroup}
                 isAnimated
                 showGradient
-                initialSpacing={50}
-                // --- KONFIGURACJA DYMKA (TOOLTIP) ---
-                pointerConfig={{
-                  pointerStripHeight: 160,
-                  pointerStripColor: "rgba(46, 204, 113, 0.2)",
-                  pointerStripWidth: 2,
-                  pointerColor: "#2ecc71",
-                  radius: 6,
-                  pointerLabelWidth: 80,
-                  pointerLabelHeight: 40,
-                  // Kluczowe zmiany dla dotyku:
-                  activatePointersOnLongPress: false, // Aktywacja po zwykłym kliknięciu
-                  persistPointer: true, // Zostaje po kliknięciu
-                  hidePointer1: false,
-                  pointerVanishDelay: 0,
-                  autoAdjustPointerLabelPosition: false,
-                  pointerLabelComponent: (items: any) => {
-                    return (
-                      <View style={styles.tooltipContainer}>
-                        <Text style={styles.tooltipText}>
-                          {items[0].value.toFixed(2)} zł
-                        </Text>
-                      </View>
-                    );
-                  },
-                }}
+                yAxisTextStyle={styles.axisText}
+                xAxisLabelTextStyle={styles.axisText}
+                renderTooltip={(item: any) => (
+                  <View
+                    style={[
+                      styles.tooltipContainer,
+                      { backgroundColor: "#2980b9" },
+                    ]}
+                  >
+                    <Text style={styles.tooltipText}>
+                      {item.value.toFixed(2)} zł
+                    </Text>
+                  </View>
+                )}
               />
             </LinearGradient>
           </View>
         ) : (
           <View style={styles.noDataCard}>
-            <Text style={styles.noDataText}>Brak danych do wyświetlenia</Text>
+            <Text style={styles.noDataText}>
+              W tej grupie nie ma jeszcze wydatków
+            </Text>
           </View>
         )}
-
-        <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: "#f8f9fa" },
   title: {
     fontSize: 28,
     fontWeight: "bold",
@@ -226,10 +353,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginBottom: 25,
     elevation: 4,
-    shadowColor: "#2ecc71",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
   },
   summaryLabel: { color: "#fff", opacity: 0.9, fontSize: 14 },
   summaryValue: {
@@ -243,7 +366,11 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 15,
     color: "#2c3e50",
-    paddingLeft: 5,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   chartWrapper: {
     backgroundColor: "#ffffff",
@@ -253,45 +380,90 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    zIndex: 1,
+    overflow: "hidden",
   },
   gradientWrapper: {
     paddingVertical: 20,
-    paddingRight: 10,
-    paddingLeft: 10,
     paddingTop: 40,
     alignItems: "center",
   },
+  axisText: { color: "#7f8c8d", fontSize: 11 },
+  pickerContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    overflow: "hidden",
+  },
+  picker: { height: 50, width: "100%" },
   noDataCard: {
     backgroundColor: "#fff",
-    padding: 40,
+    padding: 30,
     borderRadius: 20,
     alignItems: "center",
-    elevation: 2,
   },
-  noDataText: {
-    color: "#95a5a6",
-    fontSize: 16,
-  },
-  // Style dla dymka
+  noDataText: { color: "#95a5a6", fontSize: 14 },
   tooltipContainer: {
-    paddingVertical: 5,
-    height: 30,
-    width: 80,
-    justifyContent: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: "#2c3e50",
+    borderRadius: 6,
     alignItems: "center",
-    backgroundColor: "#2c3e50", // Ciemny granat kontrastujący z jasnym tłem i zielenią
-    borderRadius: 8,
-    // Przesunięcie, aby dymek był wyśrodkowany nad palcem/słupkiem
-    marginLeft: -30,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
   },
-  tooltipText: {
-    color: "white",
+  tooltipText: { color: "white", fontWeight: "bold", fontSize: 10 },
+  groupTotalCard: {
+    backgroundColor: "#ffffff",
+    padding: 15,
+    borderRadius: 15,
+    marginBottom: 15,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderLeftWidth: 5,
+    borderLeftColor: "#3498db", // Niebieski kolor pasujący do wykresu grupowego
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  groupTotalLabel: {
+    fontSize: 14,
+    color: "#7f8c8d",
+    fontWeight: "600",
+  },
+  groupTotalValue: {
+    fontSize: 18,
     fontWeight: "bold",
-    fontSize: 12,
+    color: "#2c3e50",
+  },
+  iosSelector: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    // Delikatny cień dla iOS
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  iosSelectorContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  iosSelectorText: {
+    fontSize: 16,
+    color: "#2c3e50",
+    fontWeight: "500",
+  },
+  iosSelectorArrow: {
+    fontSize: 18,
+    color: "#bdc3c7",
   },
 });

@@ -4,18 +4,18 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActionSheetIOS,
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActionSheetIOS,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import api from "../../../constants/api";
 
@@ -172,8 +172,8 @@ export default function GroupDetails() {
       setBalances(balancesRes.data);
       const members: GroupMember[] = groupRes.data.members || [];
       setGroupMembers(members);
+
       if (members.length > 0) {
-        if (!selectedPaidBy) setSelectedPaidBy(members[0].email);
         if (selectedParticipants.length === 0)
           setSelectedParticipants(members.map((m) => m.email));
       }
@@ -332,15 +332,21 @@ export default function GroupDetails() {
       // 1. Pobierz świeży profil użytkownika
       const res = await api.get("/users/me");
 
-      // 2. Jeśli serwer zwrócił walutę, zaktualizuj stan wyboru
-      if (res.data && res.data.defaultCurrency) {
-        setSelectedCurrency(res.data.defaultCurrency.toUpperCase());
+      if (res.data) {
+        // 2. Ustaw walutę domyślną
+        if (res.data.defaultCurrency) {
+          setSelectedCurrency(res.data.defaultCurrency.toUpperCase());
+        }
+
+        // 3. KLUCZOWA ZMIANA: Ustaw zalogowanego użytkownika jako płacącego
+        if (res.data.email) {
+          setSelectedPaidBy(res.data.email);
+        }
       }
     } catch (error) {
-      console.error("Nie udało się odświeżyć waluty domyślnej:", error);
-      // W razie błędu zostajemy przy tym, co było (np. PLN)
+      console.error("Nie udało się odświeżyć danych użytkownika:", error);
     } finally {
-      // 3. Dopiero teraz pokaż modal
+      // 4. Pokazujemy modal
       setModalVisible(true);
     }
   };
@@ -668,7 +674,7 @@ export default function GroupDetails() {
         <Text style={styles.fabText}>Dodaj wydatek</Text>
       </TouchableOpacity>
 
-      {/* MODAL NOWEGO WYDATKU - TUTAJ ZMIANY */}
+      {/* MODAL NOWEGO WYDATKU */}
       <Modal animationType="slide" transparent visible={isModalVisible}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
