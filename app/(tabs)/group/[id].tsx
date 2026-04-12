@@ -4,22 +4,21 @@ import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActionSheetIOS,
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import api from "../../../constants/api";
 
-// --- INTERFEJSY ---
 interface ReceiptItem {
   name: string;
   price: number;
@@ -34,11 +33,21 @@ interface Expense {
   paidById: string;
   isSettlement: boolean;
   createdAt: Date;
+  participants: Record<string, number>;
 }
 
 interface GroupMember {
   email: string;
   username: string;
+}
+
+export interface DebtSettlement {
+  fromUserEmail: string;
+  toUserEmail: string;
+  fromUserName: string;
+  toUserName: string;
+  amount: number;
+  currency: string;
 }
 
 export default function GroupDetails() {
@@ -80,7 +89,12 @@ export default function GroupDetails() {
   const [settleFrom, setSettleFrom] = useState("");
   const [settleTo, setSettleTo] = useState("");
   const [settleAmount, setSettleAmount] = useState("");
+  const [settleCurrency, setSettleCurrency] = useState("PLN");
   const [isScanning, setIsScanning] = useState(false);
+  const [exactDebts, setExactDebts] = useState<DebtSettlement[]>([]);
+  const [expandedExpenseId, setExpandedExpenseId] = useState<string | null>(
+    null,
+  );
 
   // NOWE STANY: Konwersja walut
   const [isConvertModalVisible, setConvertModalVisible] = useState(false);
@@ -91,11 +105,21 @@ export default function GroupDetails() {
   // Domyślnie PLN, chyba że masz globalny kontekst Usera (wtedy ustaw: user.defaultCurrency)
   const [targetCurrency, setTargetCurrency] = useState("PLN");
 
+  const fixKey = (key: string) => (key ? key.replace(/__dot__/g, ".") : "");
+
+  const fetchExactDebts = async () => {
+    try {
+      const response = await api.get(`/expenses/group/${id}/debts`);
+      setExactDebts(response.data);
+    } catch (error) {
+      console.error("Błąd podczas pobierania szczegółowych długów:", error);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       fetchGroupDetails();
-      // Możesz tu też dodać osobne zapytanie o profil usera,
-      // aby mieć pewność, że defaultCurrency jest świeże.
+      fetchExactDebts();
     }, [id]),
   );
 
@@ -213,6 +237,19 @@ export default function GroupDetails() {
           updateSplitFromItems(newItems);
         },
       );
+    }
+  };
+
+  const updateSettleAmount = (from: string, to: string, curr: string) => {
+    const directDebt = exactDebts.find(
+      (d) =>
+        d.fromUserEmail === from && d.toUserEmail === to && d.currency === curr,
+    );
+
+    if (directDebt) {
+      setSettleAmount(directDebt.amount.toFixed(2));
+    } else {
+      setSettleAmount(""); // Brak długu w tej konkretnej walucie
     }
   };
 
@@ -352,29 +389,41 @@ export default function GroupDetails() {
   };
 
   const handleAddExpense = async () => {
-    const remaining = getRemainingPercent();
-    if (remaining !== 0) {
-      Alert.alert(
-        "Błąd",
-        `Suma musi być 100%. Brakuje: ${remaining.toFixed(2)}%`,
-      );
-      return;
-    }
     try {
       const total = parseFloat(amount);
+      if (isNaN(total) || total <= 0) {
+        Alert.alert("Błąd", "Wprowadź poprawną kwotę");
+        return;
+      }
+
       const shares: Record<string, number> = {};
-      let allocatedAmount = 0;
+      const count = selectedParticipants.length;
+      let currentSum = 0;
 
       selectedParticipants.forEach((email, index) => {
-        if (index === selectedParticipants.length - 1) {
-          shares[email] = parseFloat((total - allocatedAmount).toFixed(2));
+        if (index === count - 1) {
+          // Ostatnia osoba zawsze bierze "resztę", by suma była idealna
+          shares[email] = parseFloat((total - currentSum).toFixed(2));
         } else {
-          const percent = parseFloat(sharesPercent[email]) || 0;
-          const memberShare = parseFloat(((percent / 100) * total).toFixed(2));
+          let memberShare: number;
+
+          if (!isCustomSplit) {
+            // LOGIKA RÓWNEGO PODZIAŁU: Dzielimy kwotę bezpośrednio
+            // Używamy Math.floor, aby reszta (grosze) została dla ostatniej osoby
+            memberShare = Math.floor((total / count) * 100) / 100;
+          } else {
+            // LOGIKA PROCENTOWA: Tylko jeśli użytkownik sam pozmieniał suwaki/wpisał %
+            const percent = parseFloat(sharesPercent[email]) || 0;
+            memberShare = parseFloat(((percent / 100) * total).toFixed(2));
+          }
+
           shares[email] = memberShare;
-          allocatedAmount += memberShare;
+          currentSum = parseFloat((currentSum + memberShare).toFixed(2));
         }
       });
+
+      // Log dla Ciebie do sprawdzenia w konsoli:
+      console.log("Podział:", shares);
 
       await api.post("/expenses/add", {
         description,
@@ -384,17 +433,19 @@ export default function GroupDetails() {
         groupId: id,
         participantShares: shares,
       });
+
       setModalVisible(false);
       fetchGroupDetails();
+      fetchExactDebts();
       setAmount("");
       setDescription("");
       setReceiptItems([]);
     } catch (error) {
+      console.error(error);
       Alert.alert("Błąd", "Nie udało się dodać wydatku");
     }
   };
 
-  // ... (handleSettleUp, handleAddUser pozostają bez zmian)
   const handleAddUser = async () => {
     if (!newUserEmail.trim() || !newUserEmail.includes("@")) {
       Alert.alert("Błąd", "Wprowadź poprawny adres e-mail");
@@ -431,6 +482,7 @@ export default function GroupDetails() {
           fromEmail: settleFrom,
           toEmail: settleTo,
           amount: parseFloat(settleAmount),
+          currency: settleCurrency,
         },
       });
       setSettleModalVisible(false);
@@ -438,16 +490,23 @@ export default function GroupDetails() {
       setSettleTo("");
       setSettleAmount("");
       fetchGroupDetails();
+      fetchExactDebts();
       Alert.alert("Sukces", "Rozliczenie zapisane");
     } catch (error) {
       Alert.alert("Błąd", "Nie udało się zapisać rozliczenia");
     }
   };
 
-  const openSettleWithData = (email: string, amount: number) => {
+  const openSettleWithData = (
+    email: string,
+    amount: number,
+    currency: string = "PLN",
+  ) => {
     setSettleFrom("");
     setSettleTo("");
     setSettleAmount("");
+    setSettleCurrency(currency); // Ustawiamy walutę rozliczenia
+
     if (amount < 0) {
       setSettleFrom(email);
     } else if (amount > 0) {
@@ -458,16 +517,17 @@ export default function GroupDetails() {
 
   const handleSelectToEmail = (toEmail: string) => {
     setSettleTo(toEmail);
-    if (settleFrom) {
-      const fromBalance = balances[settleFrom]?.["PLN"] || 0;
-      const toBalance = balances[toEmail]?.["PLN"] || 0;
-      if (fromBalance < 0 && toBalance > 0) {
-        const suggestion = Math.min(Math.abs(fromBalance), toBalance);
-        setSettleAmount(suggestion.toFixed(2));
-      } else if (fromBalance < 0) {
-        setSettleAmount(Math.abs(fromBalance).toFixed(2));
-      }
-    }
+    updateSettleAmount(settleFrom, toEmail, settleCurrency);
+  };
+
+  const handleSelectFromEmail = (fromEmail: string) => {
+    setSettleFrom(fromEmail);
+    updateSettleAmount(fromEmail, settleTo, settleCurrency);
+  };
+
+  const handleSelectSettleCurrency = (curr: string) => {
+    setSettleCurrency(curr);
+    updateSettleAmount(settleFrom, settleTo, curr);
   };
 
   const toggleParticipant = (email: string) => {
@@ -478,10 +538,18 @@ export default function GroupDetails() {
     }
   };
 
+  const getUsernameByEmail = (email: string) => {
+    // Czyścimy e-mail (na wypadek, gdyby backend zwracał go z kropkami jako __dot__)
+    const cleanEmail = fixKey(email);
+    const member = groupMembers.find((m) => m.email === cleanEmail);
+    return member ? member.username : cleanEmail;
+  };
+
   const swapSettleSides = () => {
     const tempFrom = settleFrom;
     setSettleFrom(settleTo);
     setSettleTo(tempFrom);
+    updateSettleAmount(settleTo, tempFrom, settleCurrency);
   };
 
   const openConvertModal = () => {
@@ -519,7 +587,7 @@ export default function GroupDetails() {
       });
 
       setConvertModalVisible(false);
-      await fetchGroupDetails();
+      await Promise.all([fetchGroupDetails(), fetchExactDebts()]);
       Alert.alert(
         "Sukces",
         `Wydatki z ${selectedSourceCurrency} zostały przeliczone na ${targetCurrency}.`,
@@ -573,56 +641,103 @@ export default function GroupDetails() {
 
         <Text style={styles.title}>{groupName}</Text>
 
-        {/* Sekcja Członkowie i Wydatki pozostaje bez zmian jak w Twoim kodzie */}
+        {/* --- SEKCJA CZŁONKOWIE I BILANS --- */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Członkowie i bilans</Text>
           {groupMembers.map((member) => {
             const userBalances = balances[member.email] || {};
             const currencies = Object.keys(userBalances);
 
+            // 1. Sprawdzamy, czy użytkownik ma jakiekolwiek saldo różniące się od zera (powyżej 1 grosza)
+            const hasActiveBalance = currencies.some(
+              (curr) => Math.abs(userBalances[curr]) >= 0.01,
+            );
+
+            // Filtrujemy długi, w których ten członek jest dłużnikiem LUB wierzycielem
+            const relatedDebts = exactDebts.filter(
+              (d) =>
+                d.fromUserEmail === member.email ||
+                d.toUserEmail === member.email,
+            );
+
             return (
-              <TouchableOpacity
-                key={member.email}
-                style={styles.balanceRow}
-                onPress={() =>
-                  openSettleWithData(member.email, userBalances["PLN"] || 0)
-                } // Uproszczenie dla PLN
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.emailText}>
-                    {member.username || member.email}
-                  </Text>
-                  {currencies.length > 0 ? (
-                    currencies.map((curr) => (
-                      <Text
-                        key={curr}
-                        style={[
-                          styles.amountText,
-                          {
-                            color:
-                              userBalances[curr] >= 0 ? "#27ae60" : "#e74c3c",
-                            fontSize: 14,
-                          },
-                        ]}
-                      >
-                        {userBalances[curr] > 0
-                          ? `+${userBalances[curr].toFixed(2)}`
-                          : userBalances[curr].toFixed(2)}{" "}
-                        {curr}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text
-                      style={[
-                        styles.amountText,
-                        { color: "#95a5a6", fontSize: 14 },
-                      ]}
-                    >
-                      0.00 PLN
+              <View key={member.email} style={styles.memberWrapper}>
+                <TouchableOpacity
+                  style={[
+                    styles.balanceRow,
+                    {
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    },
+                  ]}
+                  onPress={() =>
+                    openSettleWithData(member.email, userBalances["PLN"] || 0)
+                  }
+                >
+                  {/* Lewa strona: Nazwa użytkownika */}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.emailText}>
+                      {member.username || member.email}
                     </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
+                  </View>
+
+                  {/* Prawa strona: Kwoty lub Ptaszek */}
+                  <View style={{ alignItems: "flex-end" }}>
+                    {hasActiveBalance ? (
+                      currencies.map((curr) => {
+                        const val = userBalances[curr];
+                        // 2. Jeśli konkretna waluta ma 0.00, pomijamy jej renderowanie
+                        if (Math.abs(val) < 0.01) return null;
+
+                        return (
+                          <Text
+                            key={curr}
+                            style={[
+                              styles.amountText,
+                              {
+                                color: val > 0 ? "#27ae60" : "#e74c3c",
+                                fontSize: 16,
+                                fontWeight: "700",
+                              },
+                            ]}
+                          >
+                            {val > 0 ? `+${val.toFixed(2)}` : val.toFixed(2)}{" "}
+                            {curr}
+                          </Text>
+                        );
+                      })
+                    ) : (
+                      // 3. Jeśli brak aktywnego salda, pokazujemy szary ptaszek
+                      <Text
+                        style={{
+                          fontSize: 20,
+                          color: "#bdc3c7",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        ✓
+                      </Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+
+                {/* --- SZCZEGÓŁOWE ROZLICZENIA (Mniejszą czcionką) --- */}
+                {relatedDebts.length > 0 && (
+                  <View style={styles.debtDetailContainer}>
+                    {relatedDebts.map((debt, idx) => {
+                      const isDebtor = debt.fromUserEmail === member.email;
+                      return (
+                        <Text key={idx} style={styles.debtDetailText}>
+                          {isDebtor
+                            ? `ma oddać ${debt.amount.toFixed(2)} ${debt.currency} do ${debt.toUserName}`
+                            : `ma otrzymać ${debt.amount.toFixed(2)} ${debt.currency} od ${debt.fromUserName}`}
+                        </Text>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             );
           })}
         </View>
@@ -631,40 +746,114 @@ export default function GroupDetails() {
         {expenses.length === 0 ? (
           <Text style={styles.emptyText}>Brak wydatków</Text>
         ) : (
-          expenses.map((item) => (
-            <View
-              key={item.id}
-              style={[
-                styles.expenseCard,
-                item.isSettlement && styles.settlementCard,
-              ]}
-            >
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    styles.expenseDesc,
-                    item.isSettlement && { color: "#7f8c8d", fontSize: 14 },
-                  ]}
-                >
-                  {item.isSettlement
-                    ? "🤝 " + item.description
-                    : item.description}
-                </Text>
-                <Text style={styles.expenseSub}>
-                  {new Date(item.createdAt).toLocaleDateString()} •{" "}
-                  {item.paidById}
-                </Text>
-              </View>
-              <Text
+          expenses.map((item) => {
+            const isExpanded = expandedExpenseId === item.id;
+
+            return (
+              <TouchableOpacity
+                key={item.id}
+                activeOpacity={0.7}
+                onPress={() =>
+                  setExpandedExpenseId(isExpanded ? null : item.id)
+                }
                 style={[
-                  styles.expenseAmount,
-                  item.isSettlement && { color: "#3498db" },
+                  styles.expenseCard,
+                  item.isSettlement && styles.settlementCard,
                 ]}
               >
-                {item.totalAmount.toFixed(2)} {item.currency || "PLN"}
-              </Text>
-            </View>
-          ))
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.expenseDesc,
+                        item.isSettlement && { color: "#7f8c8d", fontSize: 14 },
+                      ]}
+                    >
+                      {item.isSettlement
+                        ? "🤝 " + item.description
+                        : item.description}
+                    </Text>
+                    <Text style={styles.expenseSub}>
+                      {new Date(item.createdAt).toLocaleDateString()} •{" "}
+                      {fixKey(item.paidById)}
+                    </Text>
+                  </View>
+
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text
+                      style={[
+                        styles.expenseAmount,
+                        item.isSettlement && { color: "#3498db" },
+                      ]}
+                    >
+                      {item.totalAmount.toFixed(2)} {item.currency || "PLN"}
+                    </Text>
+                    {/* Mała strzałeczka sugerująca rozwijanie */}
+                    {!item.isSettlement && (
+                      <Text style={{ fontSize: 10, color: "#bdc3c7" }}>
+                        {isExpanded ? "▲ zwiń" : "▼ szczegóły"}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* --- ROZWIJANA SEKCJA UCZESTNIKÓW --- */}
+                {isExpanded && !item.isSettlement && (
+                  <View style={styles.participantsContainer}>
+                    <Text style={styles.participantsTitle}>
+                      Podział wydatku:
+                    </Text>
+
+                    {/* Sprawdzamy czy participants istnieje, jeśli nie - logujemy to dla debugowania */}
+                    {item.participants &&
+                    Object.keys(item.participants).length > 0 ? (
+                      Object.entries(item.participants).map(
+                        ([rawEmail, share]) => {
+                          const email = fixKey(rawEmail);
+                          const member = groupMembers.find(
+                            (m) => m.email === email,
+                          );
+                          const displayName = member
+                            ? member.username || email
+                            : email;
+                          const isPayer = email === fixKey(item.paidById);
+
+                          return (
+                            <View key={rawEmail} style={styles.participantsRow}>
+                              <Text style={styles.participantName}>
+                                {displayName}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.participantValue,
+                                  { color: isPayer ? "#27ae60" : "#e74c3c" },
+                                ]}
+                              >
+                                {isPayer
+                                  ? `+${(item.totalAmount - share).toFixed(2)}`
+                                  : `-${share.toFixed(2)}`}{" "}
+                                {item.currency}
+                              </Text>
+                            </View>
+                          );
+                        },
+                      )
+                    ) : (
+                      <Text style={styles.participantShareText}>
+                        Brak danych o podziale
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -1126,7 +1315,7 @@ export default function GroupDetails() {
                       backgroundColor: "#e74c3c",
                     },
                   ]}
-                  onPress={() => setSettleFrom(member.email)}
+                  onPress={() => handleSelectFromEmail(member.email)}
                 >
                   <Text
                     style={[
@@ -1174,9 +1363,36 @@ export default function GroupDetails() {
               ))}
             </ScrollView>
 
+            <Text style={styles.label}>Waluta rozliczenia</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipContainer}
+            >
+              {["PLN", "EUR", "USD", "GBP"].map((curr) => (
+                <TouchableOpacity
+                  key={curr}
+                  style={[
+                    styles.chip,
+                    settleCurrency === curr && { backgroundColor: "#3498db" },
+                  ]}
+                  onPress={() => handleSelectSettleCurrency(curr)}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      settleCurrency === curr && styles.chipTextSelected,
+                    ]}
+                  >
+                    {curr}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
             <TextInput
               style={styles.input}
-              placeholder="Kwota"
+              placeholder={`Kwota (${settleCurrency})`}
               keyboardType="numeric"
               value={settleAmount}
               onChangeText={setSettleAmount}
@@ -1253,21 +1469,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#eee",
+    paddingVertical: 4,
   },
   emailText: { color: "#333", fontSize: 15, fontWeight: "500" },
   amountText: { fontWeight: "bold", fontSize: 16 },
   expenseCard: {
     backgroundColor: "#fff",
-    padding: 15,
     borderRadius: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-    elevation: 1,
+    padding: 15,
+    marginBottom: 10,
+    // Cień
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3.84,
+    elevation: 3,
   },
   settlementCard: {
     backgroundColor: "#f8f9fa",
@@ -1653,5 +1869,52 @@ const styles = StyleSheet.create({
     color: "#ccc",
     fontStyle: "italic",
     marginTop: 5,
+  },
+  memberWrapper: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f2f6",
+    paddingVertical: 12,
+  },
+  debtDetailContainer: {
+    paddingLeft: 4, // Lekkie przesunięcie w prawo dla hierarchii
+    marginTop: 6,
+  },
+  debtDetailText: {
+    fontSize: 12, // Mała czcionka zgodnie z prośbą
+    color: "#7f8c8d", // Szary kolor (subtelny)
+    fontStyle: "italic",
+    lineHeight: 16,
+  },
+  participantsContainer: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#f1f2f6",
+  },
+  participantsTitle: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#95a5a6",
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  participantsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 3,
+  },
+  participantName: {
+    fontSize: 13,
+    color: "#34495e",
+  },
+  participantValue: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  participantShareText: {
+    fontSize: 11, // Mała czcionka
+    color: "#95a5a6", // Jasnoszary
+    marginRight: 10,
+    fontStyle: "italic",
   },
 });
