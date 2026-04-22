@@ -7,7 +7,7 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: "#2ecc71",
         tabBarInactiveTintColor: "#7f8c8d",
-        headerShown: false, // Ukrywamy nagłówek, bo masz własny Toolbar w dashboardzie
+        headerShown: false,
         tabBarStyle: {
           paddingBottom: 10,
           paddingTop: 10,
@@ -51,9 +51,9 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="group/[id]" // Ścieżka do Twojego pliku
+        name="group/[id]"
         options={{
-          href: null, // To sprawia, że zakładka nie pojawia się w dolnym pasku
+          href: null,
           title: "Szczegóły grupy",
         }}
       />

@@ -49,11 +49,9 @@ export default function FinancesScreen() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
 
-  // Stan dla wykresu ogólnego
   const [chartData, setChartData] = useState<ChartItem[]>([]);
   const [totalAllTime, setTotalAllTime] = useState(0);
 
-  // Stan dla grup i wykresu szczegółowego
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<string>("");
   const [groupChartData, setGroupChartData] = useState<ChartItem[]>([]);
@@ -68,26 +66,22 @@ export default function FinancesScreen() {
     }, []),
   );
 
-  // Pobieranie danych początkowych (wydatki ogólne i lista grup)
   const fetchInitialData = async () => {
     try {
       setLoading(true);
       const email = await AsyncStorage.getItem("userEmail");
 
-      // DODAJEMY TO SPRAWDZENIE:
       if (!email) {
         console.warn("Nie znaleziono adresu e-mail w AsyncStorage.");
         setLoading(false);
-        return; // Przerywamy funkcję, jeśli e-mail jest null
+        return;
       }
 
-      // Teraz TypeScript wie, że 'email' jest stringiem i błąd zniknie
       const [financesRes, groupsRes] = await Promise.all([
         api.get(`/expenses/user/${email}/monthly-summary`),
         api.get(`/groups/user/${email.toLowerCase()}/with-balances`),
       ]);
 
-      // ... reszta kodu bez zmian ...
       const rawLabels = Object.keys(financesRes.data);
       const values = Object.values(financesRes.data) as number[];
       setTotalAllTime(values.reduce((a, b) => a + b, 0));
@@ -141,12 +135,10 @@ export default function FinancesScreen() {
     }
   };
 
-  // Pobieranie szczegółów wydatków dla konkretnej grupy
   const fetchGroupSpending = async (groupId: string) => {
     if (!groupId) return;
     try {
       setGroupLoading(true);
-      // Zakładamy endpoint, który zwraca sumy wydatków per członek: { "User1": 150.0, "User2": 200.0 }
       const response = await api.get(
         `/groups/group/${groupId}/member-spending-summary`,
       );
@@ -162,7 +154,7 @@ export default function FinancesScreen() {
       const formatted: ChartItem[] = Object.entries(data).map(
         ([name, amount]) => ({
           value: amount as number,
-          label: name.split(" ")[0], // Bierzemy tylko pierwsze imię/nick
+          label: name.split(" ")[0],
           frontColor: "#3498db",
           gradientColor: "#85c1e9",
         }),
@@ -217,7 +209,6 @@ export default function FinancesScreen() {
           <Text style={styles.summaryValue}>{totalAllTime.toFixed(2)} zł</Text>
         </View>
 
-        {/* WYKRES 1: OGÓLNY */}
         <Text style={styles.sectionTitle}>Wydatki miesięczne</Text>
         <View style={styles.chartWrapper}>
           <LinearGradient style={styles.gradientWrapper} colors={bgcolors}>
@@ -245,7 +236,6 @@ export default function FinancesScreen() {
 
         <View style={{ height: 30 }} />
 
-        {/* SEKCJA WYBORU GRUPY */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Wydatki w grupie</Text>
         </View>
@@ -282,7 +272,6 @@ export default function FinancesScreen() {
           </View>
         )}
 
-        {/* --- NOWA SEKCJA Z SUMĄ GRUPY --- */}
         {!groupLoading && groupChartData.length > 0 && (
           <View style={styles.groupTotalCard}>
             <Text style={styles.groupTotalLabel}>Suma wydatków grupy:</Text>
@@ -292,7 +281,6 @@ export default function FinancesScreen() {
           </View>
         )}
 
-        {/* WYKRES 2: GRUPOWY */}
         {groupLoading ? (
           <ActivityIndicator color="#2ecc71" style={{ marginVertical: 40 }} />
         ) : groupChartData.length > 0 ? (
@@ -421,7 +409,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     borderLeftWidth: 5,
-    borderLeftColor: "#3498db", // Niebieski kolor pasujący do wykresu grupowego
+    borderLeftColor: "#3498db",
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -446,7 +434,6 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderWidth: 1,
     borderColor: "#e0e0e0",
-    // Delikatny cień dla iOS
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,

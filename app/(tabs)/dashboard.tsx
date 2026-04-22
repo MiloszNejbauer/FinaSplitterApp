@@ -33,7 +33,6 @@ export default function Dashboard() {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
-  // Stan dla bilansu całkowitego
   const [totalBalance, setTotalBalance] = useState<Record<string, number>>({});
 
   const insets = useSafeAreaInsets();
@@ -50,7 +49,6 @@ export default function Dashboard() {
       if (email) {
         const userEmail = email.toLowerCase();
 
-        // Pobieramy grupy z backendu
         const response = await api.get(
           `/groups/user/${userEmail}/with-balances`,
         );
@@ -58,7 +56,6 @@ export default function Dashboard() {
 
         setGroups(fetchedGroups);
 
-        // Obliczamy bilans całkowity dynamicznie na podstawie danych z grup
         const calculatedTotalBalance: Record<string, number> = {};
 
         fetchedGroups.forEach((group) => {
@@ -67,13 +64,11 @@ export default function Dashboard() {
               if (!calculatedTotalBalance[currency]) {
                 calculatedTotalBalance[currency] = 0;
               }
-              // Dodajemy kwotę z danej grupy do ogólnej puli dla tej waluty
               calculatedTotalBalance[currency] += amount;
             });
           }
         });
 
-        // Ustawiamy zsumowany obiekt, np. { "PLN": -331.7, "EUR": 50 }
         setTotalBalance(calculatedTotalBalance);
       }
     } catch (error) {
@@ -125,12 +120,10 @@ export default function Dashboard() {
 
   return (
     <View style={styles.container}>
-      {/* TOOLBAR NA GÓRZE */}
       <View style={[styles.toolbar, { paddingTop: insets.top }]}>
         <Text style={styles.toolbarTitle}>FinaSplitter</Text>
       </View>
 
-      {/* SEKCJA BILANSU CAŁKOWITEGO */}
       <View style={styles.balanceContainer}>
         <Text style={styles.balanceText}>Twój bilans całkowity:</Text>
         {Object.keys(totalBalance).length > 0 ? (
@@ -158,7 +151,6 @@ export default function Dashboard() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         renderItem={({ item }) => {
-          // Pobieramy waluty dostępne w danej grupie
           const groupCurrencyKeys = item.balances
             ? Object.keys(item.balances)
             : [];
@@ -169,7 +161,6 @@ export default function Dashboard() {
               onPress={() => router.push(`/group/${item.id}` as any)}
             >
               <View style={styles.groupCardContent}>
-                {/* LEWA STRONA: Nazwa i liczba członków */}
                 <View style={styles.groupLeftInfo}>
                   <Text style={styles.groupName}>
                     {item.name ?? "Brak nazwy"}
@@ -184,7 +175,6 @@ export default function Dashboard() {
                   </Text>
                 </View>
 
-                {/* PRAWA STRONA: Bilans użytkownika we wszystkich walutach w grupie */}
                 <View style={styles.groupBalanceContainer}>
                   <Text style={styles.balanceLabelSmall}>Twój stan</Text>
                   {groupCurrencyKeys.length > 0 ? (
@@ -269,7 +259,6 @@ export default function Dashboard() {
         </View>
       </Modal>
 
-      {/* FAB */}
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 20 }]}
         onPress={() => setModalVisible(true)}
@@ -306,7 +295,7 @@ const styles = StyleSheet.create({
     marginTop: 15,
     marginLeft: 20,
     marginBottom: 10,
-    minHeight: 40, // Dodane, aby kontener pomieścił wiele walut i nie "skakał"
+    minHeight: 40,
   },
   balanceText: {
     fontSize: 18,
@@ -314,7 +303,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   balanceValueText: {
-    fontSize: 20, // Nowy styl dla kwot w głównym widoku
+    fontSize: 20,
     fontWeight: "bold",
     marginTop: 2,
   },

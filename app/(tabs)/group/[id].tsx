@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Picker } from "@react-native-picker/picker"; // Upewnij się, że masz: npx expo install @react-native-picker/picker
+import { Picker } from "@react-native-picker/picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -22,7 +22,7 @@ import api from "../../../constants/api";
 interface ReceiptItem {
   name: string;
   price: number;
-  assignedTo: string; // "all" lub email konkretnej osoby
+  assignedTo: string;
 }
 
 interface Expense {
@@ -82,7 +82,6 @@ export default function GroupDetails() {
   );
   const [isCustomSplit, setIsCustomSplit] = useState(false);
 
-  // NOWY STAN: Pozycje z paragonu
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
 
   const [isSettleModalVisible, setSettleModalVisible] = useState(false);
@@ -96,13 +95,11 @@ export default function GroupDetails() {
     null,
   );
 
-  // NOWE STANY: Konwersja walut
   const [isConvertModalVisible, setConvertModalVisible] = useState(false);
   const [uniqueCurrencies, setUniqueCurrencies] = useState<string[]>([]);
   const [selectedSourceCurrency, setSelectedSourceCurrency] = useState<
     string | null
   >(null);
-  // Domyślnie PLN, chyba że masz globalny kontekst Usera (wtedy ustaw: user.defaultCurrency)
   const [targetCurrency, setTargetCurrency] = useState("PLN");
 
   const fixKey = (key: string) => (key ? key.replace(/__dot__/g, ".") : "");
@@ -156,11 +153,9 @@ export default function GroupDetails() {
 
   useEffect(() => {
     if (expenses.length > 0) {
-      // Wyciągamy tylko unikalne waluty z wydatków
       const currencies = [...new Set(expenses.map((ex) => ex.currency))];
       setUniqueCurrencies(currencies);
 
-      // Jeśli wybrana wcześniej waluta źródłowa już nie istnieje na liście, resetujemy wybór
       if (
         selectedSourceCurrency &&
         !currencies.includes(selectedSourceCurrency)
@@ -226,7 +221,7 @@ export default function GroupDetails() {
           title: "Kto płaci za tę pozycję?",
         },
         (buttonIndex) => {
-          if (buttonIndex === 0) return; // Anuluj
+          if (buttonIndex === 0) return;
 
           const selectedEmail =
             buttonIndex === 1 ? "all" : groupMembers[buttonIndex - 2].email;
@@ -249,11 +244,10 @@ export default function GroupDetails() {
     if (directDebt) {
       setSettleAmount(directDebt.amount.toFixed(2));
     } else {
-      setSettleAmount(""); // Brak długu w tej konkretnej walucie
+      setSettleAmount("");
     }
   };
 
-  // --- KONFIGURACJA WALUT DOCELOWYCH ---
   const AVAILABLE_CURRENCIES = [
     { label: "Polski Złoty (PLN)", value: "PLN" },
     { label: "Euro (EUR)", value: "EUR" },
@@ -272,9 +266,8 @@ export default function GroupDetails() {
           title: "Wybierz walutę docelową",
         },
         (buttonIndex) => {
-          if (buttonIndex === 0) return; // Użytkownik kliknął "Anuluj"
+          if (buttonIndex === 0) return;
 
-          // buttonIndex - 1, ponieważ indeks 0 to "Anuluj"
           const selectedValue = AVAILABLE_CURRENCIES[buttonIndex - 1].value;
           setTargetCurrency(selectedValue);
         },
@@ -282,7 +275,6 @@ export default function GroupDetails() {
     }
   };
 
-  // FUNKCJA PRZELICZAJĄCA POZYCJE NA PROCENTY
   const updateSplitFromItems = (items: ReceiptItem[]) => {
     const total = items.reduce((sum, item) => sum + item.price, 0);
     if (total === 0) return;
@@ -353,7 +345,7 @@ export default function GroupDetails() {
           assignedTo: "all",
         }));
         setReceiptItems(mappedItems);
-        updateSplitFromItems(mappedItems); // Automatycznie ustawia podział %
+        updateSplitFromItems(mappedItems);
       }
 
       Alert.alert("Sukces", "Dane z paragonu wczytane!");
@@ -366,16 +358,13 @@ export default function GroupDetails() {
 
   const handleOpenAddExpenseModal = async () => {
     try {
-      // 1. Pobierz świeży profil użytkownika
       const res = await api.get("/users/me");
 
       if (res.data) {
-        // 2. Ustaw walutę domyślną
         if (res.data.defaultCurrency) {
           setSelectedCurrency(res.data.defaultCurrency.toUpperCase());
         }
 
-        // 3. KLUCZOWA ZMIANA: Ustaw zalogowanego użytkownika jako płacącego
         if (res.data.email) {
           setSelectedPaidBy(res.data.email);
         }
@@ -383,7 +372,6 @@ export default function GroupDetails() {
     } catch (error) {
       console.error("Nie udało się odświeżyć danych użytkownika:", error);
     } finally {
-      // 4. Pokazujemy modal
       setModalVisible(true);
     }
   };
@@ -402,17 +390,13 @@ export default function GroupDetails() {
 
       selectedParticipants.forEach((email, index) => {
         if (index === count - 1) {
-          // Ostatnia osoba zawsze bierze "resztę", by suma była idealna
           shares[email] = parseFloat((total - currentSum).toFixed(2));
         } else {
           let memberShare: number;
 
           if (!isCustomSplit) {
-            // LOGIKA RÓWNEGO PODZIAŁU: Dzielimy kwotę bezpośrednio
-            // Używamy Math.floor, aby reszta (grosze) została dla ostatniej osoby
             memberShare = Math.floor((total / count) * 100) / 100;
           } else {
-            // LOGIKA PROCENTOWA: Tylko jeśli użytkownik sam pozmieniał suwaki/wpisał %
             const percent = parseFloat(sharesPercent[email]) || 0;
             memberShare = parseFloat(((percent / 100) * total).toFixed(2));
           }
@@ -422,7 +406,6 @@ export default function GroupDetails() {
         }
       });
 
-      // Log dla Ciebie do sprawdzenia w konsoli:
       console.log("Podział:", shares);
 
       await api.post("/expenses/add", {
@@ -505,7 +488,7 @@ export default function GroupDetails() {
     setSettleFrom("");
     setSettleTo("");
     setSettleAmount("");
-    setSettleCurrency(currency); // Ustawiamy walutę rozliczenia
+    setSettleCurrency(currency);
 
     if (amount < 0) {
       setSettleFrom(email);
@@ -539,7 +522,6 @@ export default function GroupDetails() {
   };
 
   const getUsernameByEmail = (email: string) => {
-    // Czyścimy e-mail (na wypadek, gdyby backend zwracał go z kropkami jako __dot__)
     const cleanEmail = fixKey(email);
     const member = groupMembers.find((m) => m.email === cleanEmail);
     return member ? member.username : cleanEmail;
@@ -557,7 +539,6 @@ export default function GroupDetails() {
       Alert.alert("Informacja", "Brak walut do konwersji w tej grupie.");
       return;
     }
-    // Opcjonalnie zaznaczamy domyślnie pierwszą dostępną walutę
     setSelectedSourceCurrency(uniqueCurrencies[0]);
     setConvertModalVisible(true);
   };
@@ -578,7 +559,6 @@ export default function GroupDetails() {
 
     try {
       setLoading(true);
-      // Wywołujemy zaktualizowany endpoint z parametrami
       await api.post(`/groups/${id}/convert`, null, {
         params: {
           fromCurrency: selectedSourceCurrency,
@@ -604,7 +584,6 @@ export default function GroupDetails() {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.container}>
-        {/* Przycisk powrotu i Akcje bez zmian */}
         <TouchableOpacity
           onPress={() => router.push("/dashboard")}
           style={styles.backButton}
@@ -648,12 +627,10 @@ export default function GroupDetails() {
             const userBalances = balances[member.email] || {};
             const currencies = Object.keys(userBalances);
 
-            // 1. Sprawdzamy, czy użytkownik ma jakiekolwiek saldo różniące się od zera (powyżej 1 grosza)
             const hasActiveBalance = currencies.some(
               (curr) => Math.abs(userBalances[curr]) >= 0.01,
             );
 
-            // Filtrujemy długi, w których ten członek jest dłużnikiem LUB wierzycielem
             const relatedDebts = exactDebts.filter(
               (d) =>
                 d.fromUserEmail === member.email ||
@@ -675,19 +652,16 @@ export default function GroupDetails() {
                     openSettleWithData(member.email, userBalances["PLN"] || 0)
                   }
                 >
-                  {/* Lewa strona: Nazwa użytkownika */}
                   <View style={{ flex: 1 }}>
                     <Text style={styles.emailText}>
                       {member.username || member.email}
                     </Text>
                   </View>
 
-                  {/* Prawa strona: Kwoty lub Ptaszek */}
                   <View style={{ alignItems: "flex-end" }}>
                     {hasActiveBalance ? (
                       currencies.map((curr) => {
                         const val = userBalances[curr];
-                        // 2. Jeśli konkretna waluta ma 0.00, pomijamy jej renderowanie
                         if (Math.abs(val) < 0.01) return null;
 
                         return (
@@ -708,7 +682,6 @@ export default function GroupDetails() {
                         );
                       })
                     ) : (
-                      // 3. Jeśli brak aktywnego salda, pokazujemy szary ptaszek
                       <Text
                         style={{
                           fontSize: 20,
@@ -722,7 +695,6 @@ export default function GroupDetails() {
                   </View>
                 </TouchableOpacity>
 
-                {/* --- SZCZEGÓŁOWE ROZLICZENIA (Mniejszą czcionką) --- */}
                 {relatedDebts.length > 0 && (
                   <View style={styles.debtDetailContainer}>
                     {relatedDebts.map((debt, idx) => {
@@ -794,7 +766,6 @@ export default function GroupDetails() {
                     >
                       {item.totalAmount.toFixed(2)} {item.currency || "PLN"}
                     </Text>
-                    {/* Mała strzałeczka sugerująca rozwijanie */}
                     {!item.isSettlement && (
                       <Text style={{ fontSize: 10, color: "#bdc3c7" }}>
                         {isExpanded ? "▲ zwiń" : "▼ szczegóły"}
@@ -803,14 +774,12 @@ export default function GroupDetails() {
                   </View>
                 </View>
 
-                {/* --- ROZWIJANA SEKCJA UCZESTNIKÓW --- */}
                 {isExpanded && !item.isSettlement && (
                   <View style={styles.participantsContainer}>
                     <Text style={styles.participantsTitle}>
                       Podział wydatku:
                     </Text>
 
-                    {/* Sprawdzamy czy participants istnieje, jeśli nie - logujemy to dla debugowania */}
                     {item.participants &&
                     Object.keys(item.participants).length > 0 ? (
                       Object.entries(item.participants).map(
@@ -858,7 +827,6 @@ export default function GroupDetails() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* FAB */}
       <TouchableOpacity style={styles.fab} onPress={handleOpenAddExpenseModal}>
         <Text style={styles.fabText}>Dodaj wydatek</Text>
       </TouchableOpacity>
@@ -939,7 +907,6 @@ export default function GroupDetails() {
                       </View>
 
                       {Platform.OS === "ios" ? (
-                        // STYLOWY PRZYCISK DLA iOS
                         <TouchableOpacity
                           style={styles.iosSelector}
                           onPress={() => openAssignmentMenu(idx)}
@@ -957,7 +924,6 @@ export default function GroupDetails() {
                           <Text style={styles.iosSelectorArrow}>▾</Text>
                         </TouchableOpacity>
                       ) : (
-                        // STANDARDOWY PICKER DLA ANDROIDA
                         <View style={styles.pickerWrapper}>
                           <Picker
                             selectedValue={item.assignedTo}
@@ -1061,7 +1027,6 @@ export default function GroupDetails() {
                   </Text>
 
                   {selectedParticipants.map((email) => {
-                    // Obliczamy kwotę na bieżąco dla każdego wiersza
                     const cleanAmount = amount.replace(",", ".");
                     const totalVal = parseFloat(cleanAmount) || 0;
 
@@ -1078,12 +1043,10 @@ export default function GroupDetails() {
                         </Text>
 
                         <View style={styles.shareValuesContainer}>
-                          {/* Wyświetlanie wyliczonej kwoty */}
                           <Text style={styles.calculatedAmountText}>
                             {individualAmount.toFixed(2)} zł
                           </Text>
 
-                          {/* Kontener na input procentowy */}
                           <View style={styles.percentInputContainer}>
                             <TextInput
                               style={styles.percentInput}
@@ -1170,7 +1133,6 @@ export default function GroupDetails() {
                 onPress={openCurrencySelector}
               >
                 <Text style={styles.iosSelectorText} numberOfLines={1}>
-                  {/* Szukamy etykiety, a jeśli jej nie ma, wyświetlamy sam kod waluty lub placeholder */}
                   {AVAILABLE_CURRENCIES.find((c) => c.value === targetCurrency)
                     ?.label ||
                     targetCurrency ||
@@ -1179,7 +1141,6 @@ export default function GroupDetails() {
                 <Text style={styles.iosSelectorArrow}>▾</Text>
               </TouchableOpacity>
             ) : (
-              // STANDARDOWY PICKER DLA ANDROIDA
               <View style={styles.pickerWrapper}>
                 <Picker
                   selectedValue={targetCurrency}
@@ -1217,7 +1178,6 @@ export default function GroupDetails() {
         </View>
       </Modal>
 
-      {/* Modale Rozliczeń i Dodawania Użytkownika pozostają bez zmian z Twojego kodu */}
       <Modal visible={isAddUserModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -1238,7 +1198,7 @@ export default function GroupDetails() {
               <Text style={styles.smallLabel}>Twoi znajomi:</Text>
               <FlatList
                 data={myFriends}
-                horizontal // Lista pozioma dla oszczędności miejsca
+                horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={(item) => item.email}
                 style={styles.horizontalList}
@@ -1420,9 +1380,7 @@ export default function GroupDetails() {
   );
 }
 
-// DOPISANE STYLE DLA NOWEJ FUNKCJONALNOŚCI
 const styles = StyleSheet.create({
-  // ... (poprzednie style bez zmian)
   container: {
     flex: 1,
     backgroundColor: "#f0f2f5",
@@ -1478,7 +1436,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 15,
     marginBottom: 10,
-    // Cień
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -1504,16 +1461,13 @@ const styles = StyleSheet.create({
     right: 20,
     bottom: 30,
     backgroundColor: "#2ecc71",
-    // Usuwamy sztywne width: 60
-    paddingHorizontal: 20, // Dodajemy margines wewnętrzny po bokach
-    height: 56, // Standardowa wysokość FAB
-    borderRadius: 28, // Połowa wysokości daje efekt zaokrąglonych końców
-    flexDirection: "row", // Ustawiamy w linii, jeśli zechcesz dodać ikonę +
+    paddingHorizontal: 20,
+    height: 56,
+    borderRadius: 28,
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    // Cienie dla Androida
     elevation: 8,
-    // Cienie dla iOS (aby był efekt "pływania")
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -1521,9 +1475,9 @@ const styles = StyleSheet.create({
   },
   fabText: {
     color: "#fff",
-    fontSize: 16, // 32 to zdecydowanie za dużo dla długiego tekstu
-    fontWeight: "600", // Pogrubienie dla lepszej czytelności
-    letterSpacing: 0.5, // Subtelny odstęp między literami
+    fontSize: 16,
+    fontWeight: "600",
+    letterSpacing: 0.5,
   },
   modalOverlay: {
     flex: 1,
@@ -1645,7 +1599,6 @@ const styles = StyleSheet.create({
   },
   scanButtonText: { color: "#27ae60", fontWeight: "bold", fontSize: 15 },
 
-  // NOWE STYLE DLA POZYCJI
   receiptItemsContainer: {
     backgroundColor: "#f1f2f6",
     padding: 10,
@@ -1660,7 +1613,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     alignItems: "center",
   },
-  picker: { width: "100%", height: "auto" }, // 'color' tutaj pomaga na Androidzie
+  picker: { width: "100%", height: "auto" },
   iosSelector: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1700,8 +1653,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ccc",
     borderRadius: 8,
-    marginBottom: 32, // Mocne odsunięcie od przycisków na dole
-    justifyContent: "center", // Ważne, aby zawartość wyższego pickera była na środku
+    marginBottom: 32,
+    justifyContent: "center",
     overflow: "hidden",
   },
   participantRow: {
@@ -1726,7 +1679,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#27ae60",
-    marginRight: 12, // Odstęp między kwotą a inputem
+    marginRight: 12,
   },
   percentInputContainer: {
     flexDirection: "row",
@@ -1736,7 +1689,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#dcdde1",
     paddingHorizontal: 8,
-    width: 70, // Stała szerokość dla inputu
+    width: 70,
   },
   percentInput: {
     flex: 1,
@@ -1767,7 +1720,7 @@ const styles = StyleSheet.create({
   whiteText: { color: "#fff", fontWeight: "bold" },
   blackText: { color: "#333" },
   convertButton: {
-    backgroundColor: "#9b59b6", // Kolor fioletowy dla odróżnienia
+    backgroundColor: "#9b59b6",
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderRadius: 20,
@@ -1824,7 +1777,7 @@ const styles = StyleSheet.create({
   },
   friendSelectionWrapper: {
     marginBottom: 20,
-    maxHeight: 100, // Ograniczamy wysokość
+    maxHeight: 100,
   },
   smallLabel: {
     fontSize: 12,
@@ -1876,12 +1829,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   debtDetailContainer: {
-    paddingLeft: 4, // Lekkie przesunięcie w prawo dla hierarchii
+    paddingLeft: 4,
     marginTop: 6,
   },
   debtDetailText: {
-    fontSize: 12, // Mała czcionka zgodnie z prośbą
-    color: "#7f8c8d", // Szary kolor (subtelny)
+    fontSize: 12,
+    color: "#7f8c8d",
     fontStyle: "italic",
     lineHeight: 16,
   },
@@ -1912,8 +1865,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   participantShareText: {
-    fontSize: 11, // Mała czcionka
-    color: "#95a5a6", // Jasnoszary
+    fontSize: 11,
+    color: "#95a5a6",
     marginRight: 10,
     fontStyle: "italic",
   },

@@ -23,22 +23,18 @@ export default function LoginScreen() {
     }
 
     try {
-      // 1. Wysyłamy dane jako obiekt JSON (zgodnie ze standardem JWT)
       const response = await api.post("/users/login", {
         email: email.toLowerCase().trim(),
         password: password,
       });
 
       if (response.status === 200) {
-        // 2. Wyciągamy token (zakładając, że backend zwraca { "token": "..." })
         const { token } = response.data;
 
         if (token) {
-          // 3. Zapisujemy dane do pamięci urządzenia
           await AsyncStorage.setItem("userToken", token);
           await AsyncStorage.setItem("userEmail", email.toLowerCase().trim());
 
-          // Opcjonalnie: od razu ustaw token w axios, żeby nie czekać na restart aplikacji
           api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
 
           Alert.alert("Sukces", "Zalogowano pomyślnie!");

@@ -13,7 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-// Import dla obsługi notcha
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function FriendsScreen() {
@@ -25,7 +24,6 @@ export default function FriendsScreen() {
   const [isModalVisible, setModalVisible] = useState(false);
   const [newFriendEmail, setNewFriendEmail] = useState("");
 
-  // Pobieramy insets dla poprawnego wyświetlania na iOS
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -77,7 +75,6 @@ export default function FriendsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#f0f2f5" }}>
-      {/* Container z dynamicznym paddingTop dla notcha */}
       <View style={[styles.container, { paddingTop: insets.top + 20 }]}>
         <Text style={styles.title}>Moi znajomi</Text>
 
@@ -86,19 +83,16 @@ export default function FriendsScreen() {
         ) : (
           <FlatList
             data={friends}
-            keyExtractor={(item) => item.email} // Email nadal jest dobrym kluczem (unikalny)
+            keyExtractor={(item) => item.email}
             renderItem={({ item }) => (
               <View style={styles.friendCard}>
                 <View style={styles.avatar}>
-                  {/* Wyświetlamy pierwszą literę nazwy użytkownika */}
                   <Text style={styles.avatarText}>
                     {item.username ? item.username[0].toUpperCase() : "?"}
                   </Text>
                 </View>
                 <View>
-                  {/* Wyświetlamy nazwę użytkownika jako główny tekst */}
                   <Text style={styles.friendUsername}>{item.username}</Text>
-                  {/* Opcjonalnie: mniejszy email pod spodem */}
                   <Text style={styles.friendEmailSubtitle}>{item.email}</Text>
                 </View>
               </View>
@@ -110,7 +104,6 @@ export default function FriendsScreen() {
         )}
       </View>
 
-      {/* Przycisk FAB z paddingiem na dół dla iPhone'ów bez przycisku Home */}
       <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + 20 }]}
         onPress={() => setModalVisible(true)}
@@ -119,7 +112,6 @@ export default function FriendsScreen() {
         <Text style={styles.fabText}>Dodaj znajomych</Text>
       </TouchableOpacity>
 
-      {/* Modal dodawania */}
       <Modal visible={isModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -158,7 +150,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 20,
-    // paddingTop usunięty stąd, jest nadawany dynamicznie w komponencie
   },
   title: {
     fontSize: 28,
@@ -252,7 +243,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderWidth: 1,
     borderColor: "#eee",
-    color: "#333", // Poprawka widoczności tekstu iOS
+    color: "#333",
     fontSize: 16,
   },
   modalButtons: {

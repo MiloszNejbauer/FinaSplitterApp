@@ -21,7 +21,7 @@ const CURRENCIES = ["PLN", "EUR", "USD", "GBP"];
 export default function ProfileScreen() {
   const [email, setEmail] = useState<string | null>(null);
   const [defaultCurrency, setDefaultCurrency] = useState<string>("PLN");
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false); // Nowy stan
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -36,7 +36,6 @@ export default function ProfileScreen() {
         if (response.data) {
           setEmail(response.data.email);
           setDefaultCurrency(response.data.defaultCurrency || "PLN");
-          // Jeśli masz to pole w bazie:
           setNotificationsEnabled(response.data.notificationsEnabled || false);
 
           await AsyncStorage.setItem(
@@ -72,12 +71,9 @@ export default function ProfileScreen() {
     }
   };
 
-  // Funkcja do zmiany stanu powiadomień
   const toggleNotifications = async (value: boolean) => {
     setNotificationsEnabled(value);
     try {
-      // Opcjonalnie: wyślij zmianę na backend
-      // await api.patch("/users/settings/notifications", { enabled: value });
     } catch (error) {
       console.error("Błąd zapisu powiadomień:", error);
     }
@@ -142,7 +138,6 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Preferencje</Text>
 
-          {/* WALUTA */}
           <View style={styles.menuItem}>
             <Text style={styles.menuItemText}>Domyślna waluta</Text>
             {Platform.OS === "android" ? (
@@ -169,7 +164,6 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* POWIADOMIENIA - NOWY KOMPONENT */}
           <View style={styles.menuItem}>
             <Text style={styles.menuItemText}>Powiadomienia</Text>
             <Switch
@@ -212,7 +206,6 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  // ... Twoje istniejące style pozostają bez zmian ...
   container: { flex: 1, backgroundColor: "#f8f9fa" },
   scrollContent: { padding: 20, alignItems: "center" },
   headerTitle: {

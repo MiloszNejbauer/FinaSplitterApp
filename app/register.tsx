@@ -36,11 +36,9 @@ export default function RegisterScreen() {
 
       if (response.status === 200) {
         if (Platform.OS === "web") {
-          // Na webie standardowy alert blokuje wątek do momentu kliknięcia OK
           alert("Sukces! Konto zostało utworzone. Możesz się teraz zalogować.");
           router.replace("/");
         } else {
-          // Na telefonie używamy callbacka w przycisku
           Alert.alert("Sukces", "Twoje konto zostało utworzone!", [
             { text: "Zaloguj się", onPress: () => router.replace("/") },
           ]);

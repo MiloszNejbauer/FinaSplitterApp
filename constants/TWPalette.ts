@@ -1,4 +1,3 @@
-// Color.ts
 export const Color = {
   grayscale: {
     50: "#000000",
